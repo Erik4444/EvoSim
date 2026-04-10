@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Evolutionäre Simulation</title>
+  <style>
+    /* Vollbild-Canvas und einfache HUD-Darstellung */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: sans-serif;
+      color: #fff;
+    }
+    #sim {
+      display: block;
+    }
+    #info {
+      position: absolute;
+      top: 0;
+      left: 0;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.5);
+      font-size: 14px;
+      line-height: 1.4;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="sim"></canvas>
+  <div id="info"></div>
+    <!-- Knopf zum Starten/Stoppen der Simulation -->
+    <button id="toggleBtn" style="position:absolute;top:10px;right:10px;z-index:10;font-size:14px;padding:4px 8px;">Pause</button>
+    <!-- Tooltip für Agenteninfos -->
+    <div id="tooltip" style="position:absolute;pointer-events:none;background:rgba(0,0,0,0.7);color:#fff;padding:4px 8px;border-radius:4px;font-size:12px;display:none;z-index:1000;"></div>
+  <script>
+    // Evolutions-Simulation mit Agenten, deren Verhalten von kleinen neuronalen Netzen bestimmt wird.
+    // Die Regeln sind so minimal wie möglich gehalten: Energiegewinn und ‑verbrauch,
+    // Fortpflanzung bei ausreichend Energie, zufällige Mutationen der Netzarchitektur und Gewichte,
+    // sowie ein niedriger Zufalls-Hazard, der für ein Versterben unabhängig vom Energiehaushalt sorgt.
+    // Ein Agent hat keine vorgegebenen "Module" – seine Fähigkeiten entstehen durch die Gewichte
+    // und die Struktur seines Netzwerks. Sensorik besteht aus generischen Richtungssensoren, die
+    // Nahrung und andere Agenten in acht Sektoren wahrnehmen. Lernen innerhalb des Lebens kann
+    // durch eine genetisch kodierte Plastizitätsrate auftreten.
+
+    // Canvas-Setup
+    const canvas = document.getElementById('sim');
+    const ctx = canvas.getContext('2d');
+    const infoDiv = document.getElementById('info');
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Optionale Fehleranzeige: Bei Bedarf kann window.onerror implementiert werden, um Fehlermeldungen sichtbar zu machen.
+
+    // Konfigurationsparameter
+    const SENSOR_DIRECTIONS = 8;          // Zahl der Richtungssensoren (gleichmäßig auf 360° verteilt)
+    const SENSOR_RANGE = 100;             // Reichweite der Sensorik (Pixel)
+    const START_ENERGY = 2.0;             // Startenergie für jeden neuen Agenten
+    const REPRODUCTION_THRESHOLD = 4.0;   // Energieschwelle für Fortpflanzung
+    const CHILD_ENERGY = 2.0;             // Energie, die ein Kind erhält (und dem Elternteil abgezogen wird)
+    const FOOD_VALUE = 1.5;               // Energiegewinn pro Nahrungsteil
+    const FOOD_SPAWN_PROB = 0.03;         // Spawn-Wahrscheinlichkeit pro Tick für ein neues Nahrungsteil
+    const MAX_FOOD_ITEMS = 500;           // Maximale Anzahl an Nahrungsteilen gleichzeitig im System
+    const FOOD_RADIUS = 4;                // Radius, innerhalb dessen Nahrung aufgenommen wird
+    const BASE_COST = 0.002;              // Grundumsatz pro Tick für jeden Agenten
+    const MOVE_COST_FACTOR = 0.001;       // Kosten proportional zum Quadrat der Geschwindigkeit
+    const MAX_SPEED = 2.0;                // Maximale Translationsgeschwindigkeit pro Tick (Pixel)
+    const MAX_TURN_RATE = 0.1;            // Maximale Drehgeschwindigkeit pro Tick (radians)
+    const STRUCT_MUT_PROB = 0.01;         // Wahrscheinlichkeit pro Reproduktion für strukturelle Mutation (add/remove hidden neuron)
+    const WEIGHT_MUT_RATE = 0.1;          // Standardabweichung für Mutationen der Gewichte (wird genetisch kodiert und mutiert)
+    const SIGMA_MUTATION = 0.05;          // Mutationsrate für das Mutationssigma selbst (logarithmisch)
+    const PLASTIC_MUT_RATE = 0.05;        // Mutationsrate für die Plastizität
+    const HAZARD_BASE = 0.00005;          // Basissterberate pro Tick (ohne Einfluss von Alter/Energie)
+    const HAZARD_GAMMA = 0.0003;          // Altersabhängige Erhöhung der Sterberate
+    const HAZARD_KAPPA = 0.2;             // Reduktion der Sterberate durch hohe Energie
+    const MIN_HIDDEN_UNITS = 1;           // Minimale Anzahl an Hidden-Neuronen
+    const MAX_HIDDEN_UNITS = 10;          // Maximale Anzahl an Hidden-Neuronen (Begrenzung für Performance)
+
+    // Anteil schwarzer Agenten: Mit dieser Wahrscheinlichkeit wird ein Genom als "schwarz" markiert.
+    // Schwarze Agenten werden nicht mehr genutzt, daher ist diese Wahrscheinlichkeit auf 0 gesetzt.
+    const BLACK_AGENT_PROB = 0.0;
+
+    // Mutationsraten für Farbgen und Größen-Gen. Diese Gene werden bei Mutationen leicht verändert.
+    const COLOR_MUTATION_RATE = 0.05;
+    const COLOR_MUTATION_STDDEV = 0.05;
+    const SIZE_MUTATION_RATE = 0.05;
+    const SIZE_MUTATION_STDDEV = 0.05;
+
+    // Formen-Definition: Jeder Index steht für eine unterschiedliche Form. Diese wird Teil des Genoms und kann mutieren.
+    const SHAPES = ['circle','square','triangle','pentagon','hexagon','star'];
+    // Wahrscheinlichkeit, dass sich die Form bei einer Mutation ändert.
+    const SHAPE_MUT_PROB = 0.02;
+    // Namenspool für Gruppen. Wenn mehr Gruppen entstehen als Namen vorhanden sind, werden generische Namen erzeugt.
+    const GROUP_NAME_POOL = [
+      'Aurelia','Borealis','Caelia','Draco','Eolia','Felis','Galea','Helios','Ignis','Jovia',
+      'Karma','Lapis','Moris','Nexus','Orion','Pavo','Quanta','Rhea','Solis','Titan',
+      'Umbra','Vulcan','Xenon','Yara','Zephyr'
+    ];
+    let groupNameIndex = 0;
+    // Zuordnung von Farbcodes zu Namen. Neue Farben erhalten bei Bedarf einen Namen aus dem Pool.
+    const groupNames = {};
+
+    // Globale Listen für Agenten und Nahrung
+    let agents = [];
+    let foods = [];
+    // Laufende Agenten-ID für Namensvergabe
+    let nextAgentId = 1;
+    // Steuerung, ob die Simulation läuft (true) oder pausiert ist (false)
+    let running = true;
+
+    // Utility-Funktionen
+    function randn_bm() {
+      // Box-Muller-Methode zur Erzeugung normalverteilter Zufallszahlen (μ=0, σ=1)
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+    function clamp(x, min, max) {
+      return x < min ? min : (x > max ? max : x);
+    }
+    function wrapPosition(obj) {
+      // Toroidales Spielfeld: Agenten und Nahrung bleiben im Bild
+      const w = canvas.width;
+      const h = canvas.height;
+      if (obj.x < 0) obj.x += w;
+      if (obj.x >= w) obj.x -= w;
+      if (obj.y < 0) obj.y += h;
+      if (obj.y >= h) obj.y -= h;
+    }
+    function distanceSquared(x1, y1, x2, y2) {
+      const dx = x1 - x2;
+      const dy = y1 - y2;
+      return dx * dx + dy * dy;
+    }
+
+    // Ermittelt oder weist einen Gruppennamen für einen gegebenen Schlüssel (z. B. Formindex) zu.
+    // Die Gruppen werden nicht mehr nach der exakten Farbe unterschieden, sondern nach morphologischen Merkmalen.
+    // Wenn der Schlüssel noch keinen Namen hat, wird der nächste Name aus dem Pool gewählt oder ein generischer erstellt.
+    function getGroupName(key) {
+      // Verwende den Schlüssel als String im Dictionary
+      const k = String(key);
+      let name = groupNames[k];
+      if (!name) {
+        if (groupNameIndex < GROUP_NAME_POOL.length) {
+          name = GROUP_NAME_POOL[groupNameIndex++];
+        } else {
+          // Generischer Name falls der Pool erschöpft ist
+          name = 'Art' + (groupNameIndex - GROUP_NAME_POOL.length + 1);
+          groupNameIndex++;
+        }
+        groupNames[k] = name;
+      }
+      return name;
+    }
+
+    // Zeichnet einen Agenten in der entsprechenden Form. Wenn fillColor angegeben ist, wird gefüllt, bei strokeColor wird nur die Umrandung gezeichnet.
+    function drawShape(ctx, x, y, size, shapeIndex, fillColor, strokeColor) {
+      ctx.beginPath();
+      switch (shapeIndex) {
+        case 0: // Kreis
+          ctx.arc(x, y, size, 0, 2 * Math.PI);
+          break;
+        case 1: // Quadrat
+          ctx.rect(x - size, y - size, size * 2, size * 2);
+          break;
+        case 2: // Dreieck
+          ctx.moveTo(x, y - size);
+          ctx.lineTo(x - size, y + size);
+          ctx.lineTo(x + size, y + size);
+          ctx.closePath();
+          break;
+        case 3: // Fünfeck
+          for (let i = 0; i < 5; i++) {
+            const angle = (2 * Math.PI * i) / 5 - Math.PI / 2;
+            const px = x + size * Math.cos(angle);
+            const py = y + size * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          break;
+        case 4: // Sechseck
+          for (let i = 0; i < 6; i++) {
+            const angle = (2 * Math.PI * i) / 6 - Math.PI / 2;
+            const px = x + size * Math.cos(angle);
+            const py = y + size * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          break;
+        case 5: // Stern (5-zackig)
+          const outerRadius = size;
+          const innerRadius = size * 0.5;
+          for (let i = 0; i < 5; i++) {
+            // äußerer Punkt
+            let angle = (2 * Math.PI * i) / 5 - Math.PI / 2;
+            let px = x + outerRadius * Math.cos(angle);
+            let py = y + outerRadius * Math.sin(angle);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+            // innerer Punkt
+            angle += Math.PI / 5;
+            px = x + innerRadius * Math.cos(angle);
+            py = y + innerRadius * Math.sin(angle);
+            ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          break;
+        default:
+          ctx.arc(x, y, size, 0, 2 * Math.PI);
+      }
+      if (fillColor) {
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+      }
+      if (strokeColor) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // Erstellt den HTML-Inhalt für den Tooltip eines Agenten.
+    function buildAgentTooltip(agent) {
+      // Ordne den Agenten einer groben Gruppe anhand seines Formindex zu
+      const group = getGroupName(agent.genome.shape);
+      return (
+        `<strong>${agent.name}</strong> (<em>${group}</em>)<br>` +
+        `Energie: ${agent.energy.toFixed(2)}<br>` +
+        `Alter: ${agent.age}<br>` +
+        `Hidden Units: ${agent.genome.hiddenUnits}<br>` +
+        `Sigma: ${agent.genome.sigma.toFixed(3)}<br>` +
+        `Plastizität: ${agent.genome.plasticity.toFixed(3)}<br>` +
+        `GrößeGen: ${agent.genome.sizeGene.toFixed(3)}<br>` +
+        `FarbGen: ${agent.genome.colorGene.toFixed(3)}<br>` +
+        `Reproduktionen: ${agent.reproductions}`
+      );
+    }
+    // Farbhash für Genome: basiert auf den Gewichtssummen, damit ähnliche Genome ähnliche Farben bekommen
+    function genomeToColor(genome) {
+      // Die Farbe eines Genoms wird aus Form (shape) und einem Farbgen (colorGene) berechnet.
+      // Ähnliche Formen und nahe FarbGene erzeugen ähnliche Farben. Das Gewichtsspektrum hat keinen Einfluss mehr.
+      const hue = ((genome.shape / SHAPES.length) + (genome.colorGene || 0)) % 1;
+      const angle = hue * 2 * Math.PI;
+      // Verwende Sinusfunktionen für eine gleichmäßige Verteilung im RGB-Raum.
+      const r = Math.floor(128 + 127 * Math.sin(angle));
+      const g = Math.floor(128 + 127 * Math.sin(angle + 2));
+      const b = Math.floor(128 + 127 * Math.sin(angle + 4));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    // Genome-Klasse: hält die architektonische Beschreibung und Mutationsparameter des neuronalen Netzes
+    class Genome {
+      constructor(hiddenUnits, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, black = false, shape = 0, colorGene = Math.random(), sizeGene = Math.random()) {
+        this.hiddenUnits = hiddenUnits;
+        this.weightsIH = weightsIH;   // Matrix [hiddenUnits][inputSize]
+        this.weightsHO = weightsHO;   // Matrix [outputSize][hiddenUnits]
+        this.biasHidden = biasHidden; // Array[hiddenUnits]
+        this.biasOutput = biasOutput; // Array[outputSize]
+        this.sigma = sigma;           // Mutationsstärke für Gewichte
+        this.plasticity = plasticity; // Lernrate (0 = kein Lernen innerhalb des Lebens)
+        this.black = black;           // Wird nicht mehr genutzt, bleibt für Kompatibilität bestehen.
+        // Shape-Index bestimmt die Form des Agenten (siehe SHAPES). Gehört zum Genom und ist vererbbar.
+        this.shape = shape;
+        // Farbgen im Bereich [0,1). Beeinflusst die Farbberechnung.
+        this.colorGene = colorGene;
+        // Größen-Gen im Bereich [0,1]. Größere Werte führen zu größeren Agenten und beeinflussen Geschwindigkeit und Kosten.
+        this.sizeGene = sizeGene;
+        this.color = genomeToColor(this);
+      }
+      copy() {
+        // tiefe Kopie aller Strukturen
+        const copyMatrix = (m) => m.map(row => row.slice());
+        return new Genome(
+          this.hiddenUnits,
+          copyMatrix(this.weightsIH),
+          copyMatrix(this.weightsHO),
+          this.biasHidden.slice(),
+          this.biasOutput.slice(),
+          this.sigma,
+          this.plasticity,
+          this.black,
+          this.shape,
+          this.colorGene,
+          this.sizeGene
+        );
+      }
+      static random(inputSize, outputSize) {
+        // Erzeuge ein zufälliges Genome mit zufälliger Anzahl Hidden-Neuronen
+        const hidden = Math.floor(Math.random() * (MAX_HIDDEN_UNITS - MIN_HIDDEN_UNITS + 1)) + MIN_HIDDEN_UNITS;
+        const weightsIH = [];
+        for (let i = 0; i < hidden; i++) {
+          const row = [];
+          for (let j = 0; j < inputSize; j++) {
+            row.push(randn_bm() * 0.5);
+          }
+          weightsIH.push(row);
+        }
+        const weightsHO = [];
+        for (let i = 0; i < outputSize; i++) {
+          const row = [];
+          for (let j = 0; j < hidden; j++) {
+            row.push(randn_bm() * 0.5);
+          }
+          weightsHO.push(row);
+        }
+        const biasHidden = [];
+        for (let i = 0; i < hidden; i++) biasHidden.push(randn_bm() * 0.5);
+        const biasOutput = [];
+        for (let i = 0; i < outputSize; i++) biasOutput.push(randn_bm() * 0.5);
+        const sigma = WEIGHT_MUT_RATE;
+        // 10% der Agenten starten mit kleiner Plastizität, der Rest mit 0
+        const plasticity = Math.random() < 0.1 ? Math.abs(randn_bm() * 0.01) : 0.0;
+        // Die schwarz-Marke wird nicht mehr verwendet, daher ist dieses Flag immer false
+        const black = false;
+        // Weisen Sie eine zufällige Form zu
+        const shapeIndex = Math.floor(Math.random() * SHAPES.length);
+        // Erzeuge ein zufälliges Farb- und Größen-Gen im Bereich [0,1)
+        const colorGene = Math.random();
+        const sizeGene = Math.random();
+        return new Genome(hidden, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, black, shapeIndex, colorGene, sizeGene);
+      }
+      mutate() {
+        // Erzeuge eine mutierte Kopie dieses Genoms
+        const g = this.copy();
+        // Mutationsstärke anpassen (log-normal)
+        g.sigma *= Math.exp(randn_bm() * SIGMA_MUTATION);
+        g.sigma = clamp(g.sigma, 0.001, 1.0);
+        // Plastizität mutieren
+        if (Math.random() < PLASTIC_MUT_RATE) {
+          g.plasticity += randn_bm() * 0.02;
+          g.plasticity = Math.max(0, g.plasticity);
+          if (g.plasticity > 0.2) g.plasticity = 0.2;
+        }
+        // Mutieren der Gewichte und Biases
+        for (let i = 0; i < g.hiddenUnits; i++) {
+          for (let j = 0; j < g.weightsIH[i].length; j++) {
+            g.weightsIH[i][j] += randn_bm() * g.sigma;
+          }
+          g.biasHidden[i] += randn_bm() * g.sigma;
+        }
+        for (let i = 0; i < g.weightsHO.length; i++) {
+          for (let j = 0; j < g.hiddenUnits; j++) {
+            g.weightsHO[i][j] += randn_bm() * g.sigma;
+          }
+          g.biasOutput[i] += randn_bm() * g.sigma;
+        }
+        // Strukturelle Mutation: mit kleiner Wahrscheinlichkeit Hidden-Neuron hinzufügen oder entfernen
+        if (Math.random() < STRUCT_MUT_PROB) {
+          if (Math.random() < 0.5 && g.hiddenUnits < MAX_HIDDEN_UNITS) {
+            // Neue Hidden-Unit hinzufügen
+            g.hiddenUnits++;
+            // Neue Gewichte für Input->Hidden
+            const newRow = [];
+            const inputSize = g.weightsIH[0].length;
+            for (let j = 0; j < inputSize; j++) newRow.push(randn_bm() * 0.5);
+            g.weightsIH.push(newRow);
+            // Bias
+            g.biasHidden.push(randn_bm() * 0.5);
+            // Neue Gewichte für Hidden->Output
+            for (let i = 0; i < g.weightsHO.length; i++) {
+              g.weightsHO[i].push(randn_bm() * 0.5);
+            }
+          } else if (g.hiddenUnits > MIN_HIDDEN_UNITS) {
+            // Entferne zufällige Hidden-Unit
+            const idx = Math.floor(Math.random() * g.hiddenUnits);
+            g.hiddenUnits--;
+            g.weightsIH.splice(idx, 1);
+            g.biasHidden.splice(idx, 1);
+            for (let i = 0; i < g.weightsHO.length; i++) {
+              g.weightsHO[i].splice(idx, 1);
+            }
+          }
+        }
+        // Mutieren der Farbe und Größe: kleine additive Änderungen im Bereich [0,1]
+        if (Math.random() < COLOR_MUTATION_RATE) {
+          g.colorGene += randn_bm() * COLOR_MUTATION_STDDEV;
+          // Wrap oder clamp in [0,1)
+          g.colorGene = ((g.colorGene % 1) + 1) % 1;
+        }
+        if (Math.random() < SIZE_MUTATION_RATE) {
+          g.sizeGene += randn_bm() * SIZE_MUTATION_STDDEV;
+          // Clamp in [0,1]
+          if (g.sizeGene < 0) g.sizeGene = 0;
+          if (g.sizeGene > 1) g.sizeGene = 1;
+        }
+        // Form mutieren: Ändere die Form mit einer gewissen Wahrscheinlichkeit
+        if (Math.random() < SHAPE_MUT_PROB) {
+          // Mit 50% Wahrscheinlichkeit gehe zur benachbarten Form, sonst wähle eine zufällige
+          if (Math.random() < 0.5) {
+            // +/-1 im Formenindex, mit Wraparound
+            if (Math.random() < 0.5) {
+              g.shape = (g.shape + 1) % SHAPES.length;
+            } else {
+              g.shape = (g.shape - 1 + SHAPES.length) % SHAPES.length;
+            }
+          } else {
+            g.shape = Math.floor(Math.random() * SHAPES.length);
+          }
+        }
+        // Aktualisiere die Farbe basierend auf Shape und neuem Farbgen
+        g.color = genomeToColor(g);
+        return g;
+      }
+    }
+
+    // Kleine Feedforward-Neuronale Netzklasse
+    class NeuralNetwork {
+      constructor(genome, inputSize, outputSize) {
+        this.genome = genome;
+        this.inputSize = inputSize;
+        this.outputSize = outputSize;
+        // Wir speichern kein explizites Gewichtscopy hier – wir greifen direkt auf genome.weights* zu, da diese nicht
+        // während der Lebensspanne geändert werden (außer durch plastisches Lernen).
+        this.lastInputs = new Array(inputSize).fill(0);
+        this.lastHidden = new Array(genome.hiddenUnits).fill(0);
+        this.lastOutput = new Array(outputSize).fill(0);
+      }
+      forward(inputs) {
+        // Speichere Inputs für eventuelles Lernen
+        this.lastInputs = inputs.slice();
+        const hidden = [];
+        // Input->Hidden
+        for (let h = 0; h < this.genome.hiddenUnits; h++) {
+          let sum = this.genome.biasHidden[h];
+          const wRow = this.genome.weightsIH[h];
+          for (let i = 0; i < this.inputSize; i++) {
+            sum += wRow[i] * inputs[i];
+          }
+          // Hyperbolische Tangens als Aktivierungsfunktion
+          hidden[h] = Math.tanh(sum);
+        }
+        this.lastHidden = hidden;
+        // Hidden->Output
+        const outputs = [];
+        for (let o = 0; o < this.outputSize; o++) {
+          let sum = this.genome.biasOutput[o];
+          const wRow = this.genome.weightsHO[o];
+          for (let h = 0; h < this.genome.hiddenUnits; h++) {
+            sum += wRow[h] * hidden[h];
+          }
+          outputs[o] = Math.tanh(sum);
+        }
+        this.lastOutput = outputs;
+        return outputs;
+      }
+      plasticUpdate(deltaEnergy) {
+        // Hebbianes Lernen modifiziert Gewichte, wenn Plastizität > 0
+        const alpha = this.genome.plasticity;
+        if (alpha <= 0) return;
+        // Wir modulieren die Lernrate mit dem Energiegewinn (z. B. Belohnung durch Nahrung)
+        const mod = 1 + deltaEnergy;
+        const lr = alpha * mod;
+        // Update Input->Hidden
+        for (let h = 0; h < this.genome.hiddenUnits; h++) {
+          for (let i = 0; i < this.inputSize; i++) {
+            const delta = lr * this.lastInputs[i] * this.lastHidden[h];
+            this.genome.weightsIH[h][i] += delta;
+          }
+          // Bias können wir optional auch mitlernen
+          this.genome.biasHidden[h] += lr * this.lastHidden[h];
+        }
+        // Update Hidden->Output
+        for (let o = 0; o < this.outputSize; o++) {
+          for (let h = 0; h < this.genome.hiddenUnits; h++) {
+            const delta = lr * this.lastHidden[h] * this.lastOutput[o];
+            this.genome.weightsHO[o][h] += delta;
+          }
+          this.genome.biasOutput[o] += lr * this.lastOutput[o];
+        }
+        // Clipping der Gewichte, damit sie nicht explodieren
+        const clipMatrix = (m) => {
+          for (let r = 0; r < m.length; r++) {
+            for (let c = 0; c < m[r].length; c++) {
+              m[r][c] = clamp(m[r][c], -5, 5);
+            }
+          }
+        };
+        clipMatrix(this.genome.weightsIH);
+        clipMatrix(this.genome.weightsHO);
+      }
+    }
+
+    // Agent-Klasse: repräsentiert ein einzelnes autonomes Wesen in der Simulation
+    class Agent {
+      constructor(genome = null) {
+        // Initialposition wird vom aufrufenden Code (initSimulation oder Reproduktion) gesetzt.
+        // Wir initialisieren hier nur neutrale Werte. Die echte Startposition wird
+        // bei der Erstellung zufällig zugewiesen, um sicherzustellen, dass Agenten
+        // nicht alle in einer Ecke spawnen. Die Orientierung wird zufällig vergeben.
+        this.x = 0;
+        this.y = 0;
+        this.angle = Math.random() * Math.PI * 2;
+        this.energy = START_ENERGY;
+        this.age = 0;
+        this.reproductions = 0;
+        this.genome = genome ? genome : Genome.random(INPUT_SIZE, OUTPUT_SIZE);
+        this.brain = new NeuralNetwork(this.genome, INPUT_SIZE, OUTPUT_SIZE);
+        this.color = this.genome.color;
+        // Weisen Sie jedem Agenten einen eindeutigen Namen zu
+        this.name = 'Agent' + nextAgentId++;
+      }
+      update() {
+        // Berechne Sensoren
+        const input = computeSensors(this);
+        // Feedforward
+        const outputs = this.brain.forward(input);
+        // Output[0]: Drehung [-1..1] → Skaliere mit MAX_TURN_RATE
+        // Output[1]: Vortrieb [0..1] → negative Werte können ignoriert werden
+        const turn = outputs[0];
+        const thrust = (outputs[1] + 1) / 2; // tanh → [-1,1] → Normierung auf [0,1]
+        // Berechne Faktoren basierend auf Genen
+        const sizeFactor = 1 + this.genome.sizeGene; // größere Agenten = langsamer und teurer
+        const shapeFactor = 1 + this.genome.shape / SHAPES.length; // komplexere Formen evtl. etwas langsamer
+        const colorFactor = 1 + this.genome.colorGene; // Farbgen beeinflusst Reproduktionsschwelle und Kosten
+        // Drehung
+        this.angle += turn * MAX_TURN_RATE;
+        // Normalisiere Winkel
+        if (this.angle < -Math.PI) this.angle += Math.PI * 2;
+        if (this.angle > Math.PI) this.angle -= Math.PI * 2;
+        // Geschwindigkeit basierend auf Vortrieb und Genfaktoren (inverse Abhängigkeit für Größe/Form)
+        const speed = clamp(thrust, 0, 1) * MAX_SPEED / (sizeFactor * shapeFactor);
+        const vx = Math.cos(this.angle) * speed;
+        const vy = Math.sin(this.angle) * speed;
+        this.x += vx;
+        this.y += vy;
+        wrapPosition(this);
+        // Energieverbrauch: Grundkosten + Bewegungskosten
+        const movementCost = speed * speed * MOVE_COST_FACTOR * sizeFactor;
+        // Basiskosten skalieren mit Größe und Farbe (bzw. Energiebedarf höherer Komplexität)
+        const baseCost = BASE_COST * sizeFactor * colorFactor;
+        this.energy -= baseCost + movementCost;
+        // Sammle Nahrung, wenn vorhanden
+        let energyGain = 0;
+        for (let i = foods.length - 1; i >= 0; i--) {
+          const f = foods[i];
+          const dist2 = distanceSquared(this.x, this.y, f.x, f.y);
+          if (dist2 < FOOD_RADIUS * FOOD_RADIUS) {
+            // Nahrung aufnehmen
+            this.energy += FOOD_VALUE;
+            energyGain += FOOD_VALUE;
+            foods.splice(i, 1);
+          }
+        }
+        // Plasticity-Lernen (belohnungsmoduliert)
+        this.brain.plasticUpdate(energyGain);
+        // Reproduktion: farbgen beeinflusst die Schwelle (höhere Farbgen → höhere Schwelle)
+        const reproductionThreshold = REPRODUCTION_THRESHOLD * colorFactor;
+        if (this.energy >= reproductionThreshold) {
+          this.energy -= CHILD_ENERGY;
+          const childGenome = this.genome.mutate();
+          const child = new Agent(childGenome);
+          // Position Kind in der Nähe des Elternteils
+          child.x = this.x + (Math.random() - 0.5) * 10;
+          child.y = this.y + (Math.random() - 0.5) * 10;
+          wrapPosition(child);
+          agents.push(child);
+          this.reproductions++;
+        }
+        // Hazard-basiertes Versterben
+        const hazardRate = HAZARD_BASE * Math.exp(HAZARD_GAMMA * this.age) * Math.exp(-HAZARD_KAPPA * this.energy);
+        if (Math.random() < hazardRate) {
+          this.energy = -1; // Markiere zum Entfernen
+        }
+        // Tod durch Energieknappheit
+        if (this.energy <= 0) {
+          this.energy = -1;
+        }
+        this.age++;
+      }
+    }
+
+    // Sensorik berechnen: 8 Richtungen für Nahrung, 8 Richtungen für andere Agenten, Energielevel und Rauschen
+    const INPUT_SIZE = SENSOR_DIRECTIONS * 2 + 2; // 8 food + 8 agents + energy + noise
+    const OUTPUT_SIZE = 2; // Drehung und Vortrieb
+    function computeSensors(agent) {
+      const foodSensors = new Array(SENSOR_DIRECTIONS).fill(0);
+      const agentSensors = new Array(SENSOR_DIRECTIONS).fill(0);
+      const w = canvas.width;
+      const h = canvas.height;
+      // Berechne die individuelle Sensorreichweite basierend auf dem Größen-Gen
+      const range = SENSOR_RANGE * (0.5 + agent.genome.sizeGene);
+      // Nahrungssensoren
+      for (const f of foods) {
+        let dx = f.x - agent.x;
+        let dy = f.y - agent.y;
+        // kürzeste Distanz toroidal
+        if (dx > w / 2) dx -= w;
+        if (dx < -w / 2) dx += w;
+        if (dy > h / 2) dy -= h;
+        if (dy < -h / 2) dy += h;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < range && dist > 0) {
+          const relAngle = Math.atan2(dy, dx) - agent.angle;
+          let a = relAngle;
+          // Normalisiere Winkel auf [0, 2π)
+          a = (a % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          const sector = Math.floor(a / (2 * Math.PI) * SENSOR_DIRECTIONS);
+          const weight = (range - dist) / range;
+          foodSensors[sector] += weight;
+        }
+      }
+      // Agentsensoren
+      for (const other of agents) {
+        if (other === agent) continue;
+        let dx = other.x - agent.x;
+        let dy = other.y - agent.y;
+        if (dx > w / 2) dx -= w;
+        if (dx < -w / 2) dx += w;
+        if (dy > h / 2) dy -= h;
+        if (dy < -h / 2) dy += h;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < range && dist > 0) {
+          const relAngle = Math.atan2(dy, dx) - agent.angle;
+          let a = relAngle;
+          a = (a % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          const sector = Math.floor(a / (2 * Math.PI) * SENSOR_DIRECTIONS);
+          const weight = (range - dist) / range;
+          agentSensors[sector] += weight;
+        }
+      }
+      // Normalisiere die Arrays (optional: Clipping auf 1)
+      for (let i = 0; i < SENSOR_DIRECTIONS; i++) {
+        if (foodSensors[i] > 1) foodSensors[i] = 1;
+        if (agentSensors[i] > 1) agentSensors[i] = 1;
+      }
+      const energyLevel = agent.energy / REPRODUCTION_THRESHOLD; // >1 möglich
+      const noise = Math.random() * 2 - 1; // [-1,1]
+      const inputs = [];
+      inputs.push(...foodSensors);
+      inputs.push(...agentSensors);
+      inputs.push(energyLevel);
+      inputs.push(noise);
+      return inputs;
+    }
+
+    // Initialisierung der Population und Nahrung
+    function initSimulation(initialAgents = 100, initialFood = 150) {
+      agents = [];
+      foods = [];
+      for (let i = 0; i < initialAgents; i++) {
+        const agent = new Agent();
+        // Setze die Startposition explizit zufällig auf dem ganzen Canvas,
+        // um sicherzustellen, dass alle Agenten verteilt spawnen. Auch die
+        // Anfangsorientierung wird hier gesetzt.
+        agent.x = Math.random() * canvas.width;
+        agent.y = Math.random() * canvas.height;
+        agent.angle = Math.random() * Math.PI * 2;
+        agents.push(agent);
+      }
+      for (let i = 0; i < initialFood; i++) {
+        spawnFood();
+      }
+    }
+    function spawnFood() {
+      // Füge ein Nahrungsteil an zufälliger Position hinzu (falls Limit nicht überschritten)
+      if (foods.length >= MAX_FOOD_ITEMS) return;
+      foods.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height
+      });
+    }
+
+    // Hauptschleife
+    function tick() {
+      // Nur wenn die Simulation läuft, werden Nahrung gespawnt und Agenten aktualisiert
+      if (running) {
+        // Eventuell neue Nahrung spawnen
+        if (Math.random() < FOOD_SPAWN_PROB) spawnFood();
+        // Agenten aktualisieren
+        for (let i = agents.length - 1; i >= 0; i--) {
+          const a = agents[i];
+          a.update();
+          if (a.energy < 0) {
+            agents.splice(i, 1);
+          }
+        }
+      }
+      // Anzeige zeichnen
+      render();
+      // Aktualisiere Info-Tafel mit erweiterten Daten
+      const numAgents = agents.length;
+      const numFood = foods.length;
+      let sumHidden = 0;
+      let sumAge = 0;
+      let sumSizeGene = 0;
+      const groupCounts = {};
+      const groupColors = {};
+      for (const a of agents) {
+        sumHidden += a.genome.hiddenUnits;
+        sumAge += a.age;
+        sumSizeGene += a.genome.sizeGene;
+        // Gruppiere nach Formindex, nicht nach exakter Farbe, um verwandte Agenten zusammenzufassen
+        const key = a.genome.shape;
+        groupCounts[key] = (groupCounts[key] || 0) + 1;
+        // Speichere eine Beispiel-Farbe für diese Gruppe (die erste gefundene)
+        if (!groupColors[key]) groupColors[key] = a.color;
+      }
+      const avgHidden = numAgents > 0 ? (sumHidden / numAgents).toFixed(2) : '0';
+      const avgAge = numAgents > 0 ? (sumAge / numAgents).toFixed(2) : '0';
+      const avgSize = numAgents > 0 ? (sumSizeGene / numAgents).toFixed(2) : '0';
+      // Sortiere Gruppen nach Größe und zeige die Top 5
+      const topGroups = Object.entries(groupCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      let groupsHTML = '';
+      for (const [key, count] of topGroups) {
+        const idx = parseInt(key);
+        const colSample = groupColors[idx];
+        const name = getGroupName(idx);
+        groupsHTML += `<span style="display:inline-block;width:12px;height:12px;background:${colSample};margin-right:4px;border:1px solid #fff;"></span>${name}: ${count}<br>`;
+      }
+      // Parameterübersicht (Zeilenumbrüche für bessere Lesbarkeit)
+      const paramInfo =
+        `Sensoren=${SENSOR_DIRECTIONS}<br>` +
+        `Reichweite=${SENSOR_RANGE}<br>` +
+        `StartE=${START_ENERGY}<br>` +
+        `ReproSchwelle=${REPRODUCTION_THRESHOLD}<br>` +
+        `FoodWert=${FOOD_VALUE}<br>` +
+        `MutStrukturProb=${STRUCT_MUT_PROB}<br>` +
+        `HazardBasis=${HAZARD_BASE}`;
+      infoDiv.innerHTML =
+        `<div><strong>Agenten:</strong> ${numAgents}<br>` +
+        `<strong>Nahrung:</strong> ${numFood}<br>` +
+        `<strong>ø Hidden Units:</strong> ${avgHidden}<br>` +
+        `<strong>ø Alter:</strong> ${avgAge}<br>` +
+        `<strong>ø GrößeGen:</strong> ${avgSize}<br>` +
+        `<strong>Top-Gruppen:</strong><br>${groupsHTML}</div>` +
+        `<div style="margin-top:4px;"><strong>Parameter:</strong><br>${paramInfo}</div>`;
+      // Wenn ein Agent ausgewählt ist, aktualisiere den Tooltip und positioniere ihn passend
+      if (selectedAgent) {
+        // Existiert der Agent noch?
+        if (!agents.includes(selectedAgent)) {
+          selectedAgent = null;
+          tooltip.style.display = 'none';
+        } else {
+          tooltip.innerHTML = buildAgentTooltip(selectedAgent);
+          tooltip.style.display = 'block';
+          const rect = canvas.getBoundingClientRect();
+          const sx = rect.left + selectedAgent.x;
+          const sy = rect.top + selectedAgent.y;
+          tooltip.style.left = `${sx + 15}px`;
+          tooltip.style.top = `${sy + 15}px`;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Nahrung zeichnen
+      ctx.fillStyle = '#44aa44';
+      for (const f of foods) {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, FOOD_RADIUS, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+      // Agenten zeichnen
+      for (const a of agents) {
+        // Grundgröße abhängig von der Anzahl der Hidden-Units
+        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
+        // Skaliere zusätzlich mit dem Größen-Gen, so dass Größe zwischen 0.5 und 1.5 des Basissizes liegt
+        const size = baseSize * (0.5 + a.genome.sizeGene);
+        // Hervorhebung, falls dieser Agent ausgewählt ist
+        if (selectedAgent === a) {
+          // Gelbe Umrandung mit leicht größerer Größe
+          drawShape(ctx, a.x, a.y, size + 3, a.genome.shape, null, '#ffff00');
+        }
+        // Zeichne den Körper in der zugewiesenen Form und Farbe
+        drawShape(ctx, a.x, a.y, size, a.genome.shape, a.color, null);
+        // Richtungslinie zeichnen, damit man die Bewegungsrichtung sieht
+        ctx.strokeStyle = '#ffffff66';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const dx = Math.cos(a.angle) * size * 2;
+        const dy = Math.sin(a.angle) * size * 2;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(a.x + dx, a.y + dy);
+        ctx.stroke();
+      }
+    }
+    // Simulation initialisieren, wenn die Seite vollständig geladen ist. Dies stellt sicher, dass
+    // die Canvasgröße korrekt initialisiert wurde (insbesondere unter Firefox).
+    window.addEventListener('load', () => {
+      initSimulation(120, 300); // 120 Agenten, 300 Nahrung zu Beginn
+      requestAnimationFrame(tick);
+    });
+
+    // Start/Stop-Knopf und Tastenkürzel
+    const toggleBtn = document.getElementById('toggleBtn');
+    toggleBtn.addEventListener('click', () => {
+      running = !running;
+      toggleBtn.textContent = running ? 'Pause' : 'Start';
+    });
+    // Tastenkürzel: Leertaste oder "p" schaltet die Simulation an/aus
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
+        running = !running;
+        toggleBtn.textContent = running ? 'Pause' : 'Start';
+      }
+    });
+
+    // Tooltip-Logik: Zeigt Informationen an, wenn die Maus über einem Agenten schwebt.
+    // Statt die Bewegung nur auf dem Canvas zu überwachen, registrieren wir den Listener auf dem Fenster.
+    // Dadurch wird das Event garantiert ausgelöst, selbst wenn andere Elemente den Canvas überlagern.
+    const tooltip = document.getElementById('tooltip');
+    let hoveredAgent = null;
+    // Aktuell per Klick ausgewählter Agent. Wenn gesetzt, folgt der Tooltip diesem Agenten dauerhaft und der Agent wird hervorgehoben.
+    let selectedAgent = null;
+    function handleMouseMove(e) {
+      // Bestimme die Mausposition relativ zum Canvas
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // Prüfe, ob die Maus innerhalb des Canvas liegt
+      if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      // Wenn ein Agent ausgewählt ist, folge ihm mit dem Tooltip
+      if (selectedAgent) {
+        // Prüfe, ob der ausgewählte Agent noch existiert
+        if (!agents.includes(selectedAgent)) {
+          selectedAgent = null;
+          tooltip.style.display = 'none';
+        } else {
+          tooltip.innerHTML = buildAgentTooltip(selectedAgent);
+          tooltip.style.display = 'block';
+          const sx = selectedAgent.x + rect.left;
+          const sy = selectedAgent.y + rect.top;
+          tooltip.style.left = `${sx + 15}px`;
+          tooltip.style.top = `${sy + 15}px`;
+        }
+        return;
+      }
+      // Kein Agent selektiert: Hoverlogik
+      hoveredAgent = null;
+      let minDist = Infinity;
+      for (const a of agents) {
+        const dx = a.x - mx;
+        const dy = a.y - my;
+        const dist2 = dx * dx + dy * dy;
+        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
+        const size = baseSize * (0.5 + a.genome.sizeGene);
+        const rad = size + 10;
+        if (dist2 < rad * rad && dist2 < minDist) {
+          hoveredAgent = a;
+          minDist = dist2;
+        }
+      }
+      if (hoveredAgent) {
+        tooltip.innerHTML = buildAgentTooltip(hoveredAgent);
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${e.clientX + 15}px`;
+        tooltip.style.top = `${e.clientY + 15}px`;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    }
+
+    // Klick-Handler: wählt einen Agenten aus oder hebt die Auswahl auf.
+    function handleClick(e) {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      // Wenn der Klick außerhalb des Canvas erfolgt, Auswahl aufheben
+      if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) {
+        selectedAgent = null;
+        tooltip.style.display = 'none';
+        return;
+      }
+      let nearest = null;
+      let minDist = Infinity;
+      for (const a of agents) {
+        const dx = a.x - mx;
+        const dy = a.y - my;
+        const dist2 = dx * dx + dy * dy;
+        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
+        const size = baseSize * (0.5 + a.genome.sizeGene);
+        const rad = size + 10;
+        if (dist2 < rad * rad && dist2 < minDist) {
+          nearest = a;
+          minDist = dist2;
+        }
+      }
+      if (nearest) {
+        selectedAgent = nearest;
+        // Tooltip anzeigen und neben den ausgewählten Agenten platzieren
+        tooltip.innerHTML = buildAgentTooltip(selectedAgent);
+        tooltip.style.display = 'block';
+        const sx = rect.left + selectedAgent.x;
+        const sy = rect.top + selectedAgent.y;
+        tooltip.style.left = `${sx + 15}px`;
+        tooltip.style.top = `${sy + 15}px`;
+      } else {
+        selectedAgent = null;
+        tooltip.style.display = 'none';
+      }
+    }
+    // Registriere globales Mouse-Move-Event und Mausverlassen über das Fenster
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', () => {
+      tooltip.style.display = 'none';
+    });
+    // Klick-Event registrieren, um Agenten auszuwählen
+    window.addEventListener('click', handleClick);
+  </script>
+</body>
+</html>
