@@ -34,6 +34,13 @@ export const COLOR_MUTATION_STDDEV = 0.05;
 export const SIZE_MUTATION_RATE    = 0.05;
 export const SIZE_MUTATION_STDDEV  = 0.05;
 
+// Verfügbare Aktivierungsfunktionen. Der Index (activationGene) ist Teil des Genoms.
+export const ACTIVATIONS        = ['tanh', 'relu', 'sigmoid'];
+export const ACTIVATION_MUT_PROB = 0.01; // Wahrscheinlichkeit für Mutation der Aktivierungsfunktion
+
+// Sensorik: Nah/Fern-Grenze als Anteil der Gesamtreichweite
+export const SENSOR_NEAR_FRACTION = 0.5; // < 50 % Reichweite = "nah", ≥ 50 % = "fern"
+
 // Verfügbare Formen. Der Index ist Teil des Genoms und kann mutieren.
 export const SHAPES = ['circle', 'square', 'triangle', 'pentagon', 'hexagon', 'star'];
 export const SHAPE_MUT_PROB = 0.02;

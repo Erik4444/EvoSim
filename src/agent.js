@@ -4,17 +4,19 @@ import { Genome } from './genome.js';
 import { NeuralNetwork } from './neural.js';
 import { wrapPosition } from './utils.js';
 import {
-  SENSOR_DIRECTIONS, SENSOR_RANGE,
-  START_ENERGY, REPRODUCTION_THRESHOLD, CHILD_ENERGY,
-  FOOD_VALUE, FOOD_RADIUS,
+  SENSOR_DIRECTIONS, SENSOR_NEAR_FRACTION,
+  START_ENERGY, CHILD_ENERGY, FOOD_RADIUS,
   BASE_COST, MOVE_COST_FACTOR, MAX_SPEED, MAX_TURN_RATE,
-  HAZARD_BASE, HAZARD_GAMMA, HAZARD_KAPPA,
+  HAZARD_GAMMA, HAZARD_KAPPA,
   SHAPES,
 } from './config.js';
+// SENSOR_RANGE, REPRODUCTION_THRESHOLD, FOOD_VALUE, HAZARD_BASE
+// kommen jetzt aus state.params → zur Laufzeit änderbar
 
 // Eingabe- und Ausgabegröße des neuronalen Netzes.
-// 8 Nahrungssensoren + 8 Agentsensoren + Energielevel + Rauschen
-export const INPUT_SIZE  = SENSOR_DIRECTIONS * 2 + 2;
+// Pro Sektor: nah-Nahrung + fern-Nahrung + nah-Agent + fern-Agent → 4 × SENSOR_DIRECTIONS
+// + Energielevel + Rauschen = 4 × 8 + 2 = 34
+export const INPUT_SIZE  = SENSOR_DIRECTIONS * 4 + 2;
 export const OUTPUT_SIZE = 2; // [Drehung, Vortrieb]
 
 // ---------------------------------------------------------------------------
@@ -27,18 +29,27 @@ export const OUTPUT_SIZE = 2; // [Drehung, Vortrieb]
  * andere Agenten, gewichtet nach Distanz (nah = stärker).
  */
 export function computeSensors(agent) {
-  const foodSensors  = new Array(SENSOR_DIRECTIONS).fill(0);
-  const agentSensors = new Array(SENSOR_DIRECTIONS).fill(0);
-  const w = canvas.width;
-  const h = canvas.height;
-  const range   = SENSOR_RANGE * (0.5 + agent.genome.sizeGene);
-  const rangeSq = range * range;
-  const halfW   = w / 2;
-  const halfH   = h / 2;
-  const TWO_PI  = Math.PI * 2;
+  // Vier Sensor-Arrays: nah/fern × Nahrung/Agent
+  const nearFood  = new Array(SENSOR_DIRECTIONS).fill(0);
+  const farFood   = new Array(SENSOR_DIRECTIONS).fill(0);
+  const nearAgent = new Array(SENSOR_DIRECTIONS).fill(0);
+  const farAgent  = new Array(SENSOR_DIRECTIONS).fill(0);
 
-  // Hilfsfunktion: toroidale Deltakomponente → Sektor + Gewicht
-  function accumulateSensor(sensors, tx, ty) {
+  const w      = canvas.width;
+  const h      = canvas.height;
+  const range  = state.params.sensorRange * (0.5 + agent.genome.sizeGene);
+  const rangeSq    = range * range;
+  const nearLimit  = range * SENSOR_NEAR_FRACTION; // Grenze nah/fern
+  const halfW  = w / 2;
+  const halfH  = h / 2;
+  const TWO_PI = Math.PI * 2;
+
+  /**
+   * Akkumuliert einen Sensor-Wert in den passenden Nah- oder Fern-Array.
+   * @param {number[]} nearArr – Array für nahe Objekte
+   * @param {number[]} farArr  – Array für ferne Objekte
+   */
+  function accumulate(nearArr, farArr, tx, ty) {
     let dx = tx - agent.x;
     let dy = ty - agent.y;
     if (dx >  halfW) dx -= w; else if (dx < -halfW) dx += w;
@@ -48,22 +59,24 @@ export function computeSensors(agent) {
     const dist   = Math.sqrt(distSq);
     const a      = ((Math.atan2(dy, dx) - agent.angle) % TWO_PI + TWO_PI) % TWO_PI;
     const sector = Math.floor(a / TWO_PI * SENSOR_DIRECTIONS);
-    sensors[sector] += (range - dist) / range;
+    const weight = (range - dist) / range;
+    if (dist < nearLimit) nearArr[sector] += weight;
+    else                   farArr[sector]  += weight;
   }
 
-  for (const f of state.foods)                         accumulateSensor(foodSensors,  f.x, f.y);
-  for (const o of state.agents) if (o !== agent)       accumulateSensor(agentSensors, o.x, o.y);
+  for (const f of state.foods)               accumulate(nearFood,  farFood,  f.x, f.y);
+  for (const o of state.agents) if (o !== agent) accumulate(nearAgent, farAgent, o.x, o.y);
 
   // Auf [0, 1] begrenzen
-  for (let i = 0; i < SENSOR_DIRECTIONS; i++) {
-    if (foodSensors[i]  > 1) foodSensors[i]  = 1;
-    if (agentSensors[i] > 1) agentSensors[i] = 1;
-  }
+  const cap = (arr) => { for (let i = 0; i < SENSOR_DIRECTIONS; i++) if (arr[i] > 1) arr[i] = 1; };
+  cap(nearFood); cap(farFood); cap(nearAgent); cap(farAgent);
 
   return [
-    ...foodSensors,
-    ...agentSensors,
-    agent.energy / REPRODUCTION_THRESHOLD, // normiertes Energielevel (> 1 möglich)
+    ...nearFood,
+    ...farFood,
+    ...nearAgent,
+    ...farAgent,
+    agent.energy / state.params.reproductionThreshold, // normiertes Energielevel
     Math.random() * 2 - 1,                 // Rauschen [-1, 1]
   ];
 }
@@ -119,8 +132,8 @@ export class Agent {
       const dx = this.x - f.x;
       const dy = this.y - f.y;
       if (dx * dx + dy * dy < FOOD_RADIUS_SQ) {
-        this.energy += FOOD_VALUE;
-        energyGain  += FOOD_VALUE;
+        this.energy += state.params.foodValue;
+        energyGain  += state.params.foodValue;
         state.foods.splice(i, 1);
       }
     }
@@ -128,8 +141,8 @@ export class Agent {
     // In-Life-Lernen (belohnungsmoduliert)
     this.brain.plasticUpdate(energyGain);
 
-    // Fortpflanzung (fixe Schwelle – kein versteckter Fitness-Faktor durch Farbe)
-    const reproThreshold = REPRODUCTION_THRESHOLD;
+    // Fortpflanzung (Schwelle aus state.params – zur Laufzeit änderbar)
+    const reproThreshold = state.params.reproductionThreshold;
     if (this.energy >= reproThreshold) {
       this.energy -= CHILD_ENERGY;
       const child = new Agent(this.genome.mutate());
@@ -141,7 +154,7 @@ export class Agent {
     }
 
     // Stochastischer Hazard (alters- und energieabhängig)
-    const hazard = HAZARD_BASE
+    const hazard = state.params.hazardBase
       * Math.exp(HAZARD_GAMMA * this.age)
       * Math.exp(-HAZARD_KAPPA * this.energy);
     if (Math.random() < hazard || this.energy <= 0) this.energy = -1;
