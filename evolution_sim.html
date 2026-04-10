@@ -83,10 +83,6 @@
     const MIN_HIDDEN_UNITS = 1;           // Minimale Anzahl an Hidden-Neuronen
     const MAX_HIDDEN_UNITS = 10;          // Maximale Anzahl an Hidden-Neuronen (Begrenzung für Performance)
 
-    // Anteil schwarzer Agenten: Mit dieser Wahrscheinlichkeit wird ein Genom als "schwarz" markiert.
-    // Schwarze Agenten werden nicht mehr genutzt, daher ist diese Wahrscheinlichkeit auf 0 gesetzt.
-    const BLACK_AGENT_PROB = 0.0;
-
     // Mutationsraten für Farbgen und Größen-Gen. Diese Gene werden bei Mutationen leicht verändert.
     const COLOR_MUTATION_RATE = 0.05;
     const COLOR_MUTATION_STDDEV = 0.05;
@@ -260,7 +256,7 @@
 
     // Genome-Klasse: hält die architektonische Beschreibung und Mutationsparameter des neuronalen Netzes
     class Genome {
-      constructor(hiddenUnits, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, black = false, shape = 0, colorGene = Math.random(), sizeGene = Math.random()) {
+      constructor(hiddenUnits, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, shape = 0, colorGene = Math.random(), sizeGene = Math.random()) {
         this.hiddenUnits = hiddenUnits;
         this.weightsIH = weightsIH;   // Matrix [hiddenUnits][inputSize]
         this.weightsHO = weightsHO;   // Matrix [outputSize][hiddenUnits]
@@ -268,7 +264,6 @@
         this.biasOutput = biasOutput; // Array[outputSize]
         this.sigma = sigma;           // Mutationsstärke für Gewichte
         this.plasticity = plasticity; // Lernrate (0 = kein Lernen innerhalb des Lebens)
-        this.black = black;           // Wird nicht mehr genutzt, bleibt für Kompatibilität bestehen.
         // Shape-Index bestimmt die Form des Agenten (siehe SHAPES). Gehört zum Genom und ist vererbbar.
         this.shape = shape;
         // Farbgen im Bereich [0,1). Beeinflusst die Farbberechnung.
@@ -288,7 +283,6 @@
           this.biasOutput.slice(),
           this.sigma,
           this.plasticity,
-          this.black,
           this.shape,
           this.colorGene,
           this.sizeGene
@@ -320,14 +314,12 @@
         const sigma = WEIGHT_MUT_RATE;
         // 10% der Agenten starten mit kleiner Plastizität, der Rest mit 0
         const plasticity = Math.random() < 0.1 ? Math.abs(randn_bm() * 0.01) : 0.0;
-        // Die schwarz-Marke wird nicht mehr verwendet, daher ist dieses Flag immer false
-        const black = false;
         // Weisen Sie eine zufällige Form zu
         const shapeIndex = Math.floor(Math.random() * SHAPES.length);
         // Erzeuge ein zufälliges Farb- und Größen-Gen im Bereich [0,1)
         const colorGene = Math.random();
         const sizeGene = Math.random();
-        return new Genome(hidden, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, black, shapeIndex, colorGene, sizeGene);
+        return new Genome(hidden, weightsIH, weightsHO, biasHidden, biasOutput, sigma, plasticity, shapeIndex, colorGene, sizeGene);
       }
       mutate() {
         // Erzeuge eine mutierte Kopie dieses Genoms
@@ -589,24 +581,25 @@
       const h = canvas.height;
       // Berechne die individuelle Sensorreichweite basierend auf dem Größen-Gen
       const range = SENSOR_RANGE * (0.5 + agent.genome.sizeGene);
+      const rangeSq = range * range;
+      const halfW = w / 2;
+      const halfH = h / 2;
       // Nahrungssensoren
       for (const f of foods) {
         let dx = f.x - agent.x;
         let dy = f.y - agent.y;
         // kürzeste Distanz toroidal
-        if (dx > w / 2) dx -= w;
-        if (dx < -w / 2) dx += w;
-        if (dy > h / 2) dy -= h;
-        if (dy < -h / 2) dy += h;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < range && dist > 0) {
+        if (dx > halfW) dx -= w;
+        else if (dx < -halfW) dx += w;
+        if (dy > halfH) dy -= h;
+        else if (dy < -halfH) dy += h;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < rangeSq && distSq > 0) {
+          const dist = Math.sqrt(distSq);
           const relAngle = Math.atan2(dy, dx) - agent.angle;
-          let a = relAngle;
-          // Normalisiere Winkel auf [0, 2π)
-          a = (a % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          const a = ((relAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
           const sector = Math.floor(a / (2 * Math.PI) * SENSOR_DIRECTIONS);
-          const weight = (range - dist) / range;
-          foodSensors[sector] += weight;
+          foodSensors[sector] += (range - dist) / range;
         }
       }
       // Agentsensoren
@@ -614,18 +607,17 @@
         if (other === agent) continue;
         let dx = other.x - agent.x;
         let dy = other.y - agent.y;
-        if (dx > w / 2) dx -= w;
-        if (dx < -w / 2) dx += w;
-        if (dy > h / 2) dy -= h;
-        if (dy < -h / 2) dy += h;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < range && dist > 0) {
+        if (dx > halfW) dx -= w;
+        else if (dx < -halfW) dx += w;
+        if (dy > halfH) dy -= h;
+        else if (dy < -halfH) dy += h;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < rangeSq && distSq > 0) {
+          const dist = Math.sqrt(distSq);
           const relAngle = Math.atan2(dy, dx) - agent.angle;
-          let a = relAngle;
-          a = (a % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          const a = ((relAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
           const sector = Math.floor(a / (2 * Math.PI) * SENSOR_DIRECTIONS);
-          const weight = (range - dist) / range;
-          agentSensors[sector] += weight;
+          agentSensors[sector] += (range - dist) / range;
         }
       }
       // Normalisiere die Arrays (optional: Clipping auf 1)
@@ -750,6 +742,10 @@
           tooltip.style.top = `${sy + 15}px`;
         }
       }
+      // Wenn alle Agenten gestorben sind, Simulation neu starten
+      if (agents.length === 0) {
+        initSimulation(120, 300);
+      }
       requestAnimationFrame(tick);
     }
     function render() {
@@ -806,6 +802,25 @@
       }
     });
 
+    // Gibt den nächstgelegenen Agenten an einer Canvas-Position zurück (oder null).
+    function findNearestAgent(mx, my) {
+      let nearest = null;
+      let minDist = Infinity;
+      for (const a of agents) {
+        const dx = a.x - mx;
+        const dy = a.y - my;
+        const dist2 = dx * dx + dy * dy;
+        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
+        const size = baseSize * (0.5 + a.genome.sizeGene);
+        const rad = size + 10;
+        if (dist2 < rad * rad && dist2 < minDist) {
+          nearest = a;
+          minDist = dist2;
+        }
+      }
+      return nearest;
+    }
+
     // Tooltip-Logik: Zeigt Informationen an, wenn die Maus über einem Agenten schwebt.
     // Statt die Bewegung nur auf dem Canvas zu überwachen, registrieren wir den Listener auf dem Fenster.
     // Dadurch wird das Event garantiert ausgelöst, selbst wenn andere Elemente den Canvas überlagern.
@@ -840,20 +855,7 @@
         return;
       }
       // Kein Agent selektiert: Hoverlogik
-      hoveredAgent = null;
-      let minDist = Infinity;
-      for (const a of agents) {
-        const dx = a.x - mx;
-        const dy = a.y - my;
-        const dist2 = dx * dx + dy * dy;
-        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
-        const size = baseSize * (0.5 + a.genome.sizeGene);
-        const rad = size + 10;
-        if (dist2 < rad * rad && dist2 < minDist) {
-          hoveredAgent = a;
-          minDist = dist2;
-        }
-      }
+      hoveredAgent = findNearestAgent(mx, my);
       if (hoveredAgent) {
         tooltip.innerHTML = buildAgentTooltip(hoveredAgent);
         tooltip.style.display = 'block';
@@ -875,20 +877,7 @@
         tooltip.style.display = 'none';
         return;
       }
-      let nearest = null;
-      let minDist = Infinity;
-      for (const a of agents) {
-        const dx = a.x - mx;
-        const dy = a.y - my;
-        const dist2 = dx * dx + dy * dy;
-        const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
-        const size = baseSize * (0.5 + a.genome.sizeGene);
-        const rad = size + 10;
-        if (dist2 < rad * rad && dist2 < minDist) {
-          nearest = a;
-          minDist = dist2;
-        }
-      }
+      const nearest = findNearestAgent(mx, my);
       if (nearest) {
         selectedAgent = nearest;
         // Tooltip anzeigen und neben den ausgewählten Agenten platzieren
