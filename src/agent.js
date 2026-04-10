@@ -4,13 +4,14 @@ import { Genome } from './genome.js';
 import { NeuralNetwork } from './neural.js';
 import { wrapPosition } from './utils.js';
 import {
-  SENSOR_DIRECTIONS, SENSOR_RANGE, SENSOR_NEAR_FRACTION,
-  START_ENERGY, REPRODUCTION_THRESHOLD, CHILD_ENERGY,
-  FOOD_VALUE, FOOD_RADIUS,
+  SENSOR_DIRECTIONS, SENSOR_NEAR_FRACTION,
+  START_ENERGY, CHILD_ENERGY, FOOD_RADIUS,
   BASE_COST, MOVE_COST_FACTOR, MAX_SPEED, MAX_TURN_RATE,
-  HAZARD_BASE, HAZARD_GAMMA, HAZARD_KAPPA,
+  HAZARD_GAMMA, HAZARD_KAPPA,
   SHAPES,
 } from './config.js';
+// SENSOR_RANGE, REPRODUCTION_THRESHOLD, FOOD_VALUE, HAZARD_BASE
+// kommen jetzt aus state.params → zur Laufzeit änderbar
 
 // Eingabe- und Ausgabegröße des neuronalen Netzes.
 // Pro Sektor: nah-Nahrung + fern-Nahrung + nah-Agent + fern-Agent → 4 × SENSOR_DIRECTIONS
@@ -36,7 +37,7 @@ export function computeSensors(agent) {
 
   const w      = canvas.width;
   const h      = canvas.height;
-  const range  = SENSOR_RANGE * (0.5 + agent.genome.sizeGene);
+  const range  = state.params.sensorRange * (0.5 + agent.genome.sizeGene);
   const rangeSq    = range * range;
   const nearLimit  = range * SENSOR_NEAR_FRACTION; // Grenze nah/fern
   const halfW  = w / 2;
@@ -75,7 +76,7 @@ export function computeSensors(agent) {
     ...farFood,
     ...nearAgent,
     ...farAgent,
-    agent.energy / REPRODUCTION_THRESHOLD, // normiertes Energielevel
+    agent.energy / state.params.reproductionThreshold, // normiertes Energielevel
     Math.random() * 2 - 1,                 // Rauschen [-1, 1]
   ];
 }
@@ -131,8 +132,8 @@ export class Agent {
       const dx = this.x - f.x;
       const dy = this.y - f.y;
       if (dx * dx + dy * dy < FOOD_RADIUS_SQ) {
-        this.energy += FOOD_VALUE;
-        energyGain  += FOOD_VALUE;
+        this.energy += state.params.foodValue;
+        energyGain  += state.params.foodValue;
         state.foods.splice(i, 1);
       }
     }
@@ -140,8 +141,8 @@ export class Agent {
     // In-Life-Lernen (belohnungsmoduliert)
     this.brain.plasticUpdate(energyGain);
 
-    // Fortpflanzung (fixe Schwelle – kein versteckter Fitness-Faktor durch Farbe)
-    const reproThreshold = REPRODUCTION_THRESHOLD;
+    // Fortpflanzung (Schwelle aus state.params – zur Laufzeit änderbar)
+    const reproThreshold = state.params.reproductionThreshold;
     if (this.energy >= reproThreshold) {
       this.energy -= CHILD_ENERGY;
       const child = new Agent(this.genome.mutate());
@@ -153,7 +154,7 @@ export class Agent {
     }
 
     // Stochastischer Hazard (alters- und energieabhängig)
-    const hazard = HAZARD_BASE
+    const hazard = state.params.hazardBase
       * Math.exp(HAZARD_GAMMA * this.age)
       * Math.exp(-HAZARD_KAPPA * this.energy);
     if (Math.random() < hazard || this.energy <= 0) this.energy = -1;

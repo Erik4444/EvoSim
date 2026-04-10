@@ -1,33 +1,23 @@
 import { canvas } from './canvas.js';
 import { state }  from './state.js';
 import { Agent }  from './agent.js';
-import {
-  MAX_FOOD_ITEMS,
-  FOOD_CLUSTER_PROB,
-  FOOD_CLUSTER_RADIUS,
-} from './config.js';
 
 /**
  * Spawnt ein Nahrungsteil – entweder geclustert nahe bestehender Nahrung
- * (Wahrscheinlichkeit FOOD_CLUSTER_PROB) oder zufällig auf dem Canvas.
- * Cluster-Spawning erzeugt natürlichere Nahrungsnischen und regt
- * Spezialisierung auf bestimmte Gebiete an.
+ * (Wahrscheinlichkeit state.params.foodClusterProb) oder zufällig auf dem Canvas.
  */
 export function spawnFood() {
-  if (state.foods.length >= MAX_FOOD_ITEMS) return;
+  if (state.foods.length >= state.params.maxFoodItems) return;
 
   let x, y;
 
-  if (state.foods.length > 0 && Math.random() < FOOD_CLUSTER_PROB) {
-    // Nahe einem zufällig gewählten bestehenden Nahrungspunkt spawnen
+  if (state.foods.length > 0 && Math.random() < state.params.foodClusterProb) {
     const anchor = state.foods[Math.floor(Math.random() * state.foods.length)];
     const angle  = Math.random() * Math.PI * 2;
-    const dist   = Math.random() * FOOD_CLUSTER_RADIUS;
-    // Toroidal wrappen
+    const dist   = Math.random() * state.params.foodClusterRadius;
     x = ((anchor.x + Math.cos(angle) * dist) % canvas.width  + canvas.width)  % canvas.width;
     y = ((anchor.y + Math.sin(angle) * dist) % canvas.height + canvas.height) % canvas.height;
   } else {
-    // Zufällige Streuung (sorgt dafür, dass neue Cluster entstehen)
     x = Math.random() * canvas.width;
     y = Math.random() * canvas.height;
   }
