@@ -7,8 +7,13 @@ export const START_ENERGY      = 2.0;      // Startenergie jedes neuen Agenten
 export const REPRODUCTION_THRESHOLD = 4.0; // Energieschwelle für Fortpflanzung
 export const CHILD_ENERGY      = 2.0;      // Energie, die ein Kind erhält (wird dem Elternteil abgezogen)
 export const FOOD_VALUE        = 1.5;      // Energiegewinn pro Nahrungsteil
-export const FOOD_SPAWN_PROB   = 0.03;     // Spawn-Wahrscheinlichkeit pro Tick
-export const MAX_FOOD_ITEMS    = 500;      // Maximale Nahrungsmenge gleichzeitig
+export const FOOD_SPAWN_PROB       = 0.05;  // Spawn-Wahrscheinlichkeit pro Tick
+export const MAX_FOOD_ITEMS        = 600;  // Absolutes Maximum an Nahrungsteilen
+export const MIN_FOOD_ITEMS        = 50;   // Untere Grenze (auch bei leerer Population)
+export const TARGET_FOOD_PER_AGENT = 2.5;  // Ziel: N Nahrungsteile pro lebendem Agenten
+// Cluster-Spawning: 70 % der Nahrung entsteht nahe bestehender Nahrung
+export const FOOD_CLUSTER_PROB     = 0.7;
+export const FOOD_CLUSTER_RADIUS   = 80;   // Maximale Distanz zum Cluster-Anker (Pixel)
 export const FOOD_RADIUS       = 4;        // Aufnahmeradius (Pixel)
 export const BASE_COST         = 0.002;    // Grundumsatz pro Tick
 export const MOVE_COST_FACTOR  = 0.001;    // Kosten proportional zum Quadrat der Geschwindigkeit
