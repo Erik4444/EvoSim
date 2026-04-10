@@ -94,10 +94,9 @@ export class Agent {
     const turn    = outputs[0];
     const thrust  = (outputs[1] + 1) / 2; // tanh → [0, 1]
 
-    // Gen-basierte Faktoren
-    const sizeFactor  = 1 + this.genome.sizeGene;
-    const shapeFactor = 1 + this.genome.shape / SHAPES.length;
-    const colorFactor = 1 + this.genome.colorGene;
+    // Gen-basierte Faktoren (colorGene bestimmt nur die Farbe, nicht mehr die Kosten)
+    const sizeFactor  = 1 + this.genome.sizeGene;           // [1, 2]  – größer = langsamer & teurer
+    const shapeFactor = 1 + this.genome.shape / SHAPES.length; // [1, ~1.83] – komplexer = langsamer
 
     // Rotation
     this.angle += turn * MAX_TURN_RATE;
@@ -110,8 +109,8 @@ export class Agent {
     this.y += Math.sin(this.angle) * speed;
     wrapPosition(this, canvas.width, canvas.height);
 
-    // Energieverbrauch
-    this.energy -= BASE_COST * sizeFactor * colorFactor + speed * speed * MOVE_COST_FACTOR * sizeFactor;
+    // Energieverbrauch (nur Größe treibt die Kosten, nicht mehr die Farbe)
+    this.energy -= BASE_COST * sizeFactor + speed * speed * MOVE_COST_FACTOR * sizeFactor;
 
     // Nahrung aufnehmen
     let energyGain = 0;
@@ -129,8 +128,8 @@ export class Agent {
     // In-Life-Lernen (belohnungsmoduliert)
     this.brain.plasticUpdate(energyGain);
 
-    // Fortpflanzung (Farbgen beeinflusst die Schwelle)
-    const reproThreshold = REPRODUCTION_THRESHOLD * colorFactor;
+    // Fortpflanzung (fixe Schwelle – kein versteckter Fitness-Faktor durch Farbe)
+    const reproThreshold = REPRODUCTION_THRESHOLD;
     if (this.energy >= reproThreshold) {
       this.energy -= CHILD_ENERGY;
       const child = new Agent(this.genome.mutate());

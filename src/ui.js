@@ -14,6 +14,7 @@ import {
   START_ENERGY, FOOD_VALUE,
   STRUCT_MUT_PROB, HAZARD_BASE,
   FOOD_SPAWN_PROB,
+  MAX_FOOD_ITEMS, MIN_FOOD_ITEMS, TARGET_FOOD_PER_AGENT,
 } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,14 @@ function updateSelectedTooltip() {
 
 function tick() {
   if (state.running) {
-    if (Math.random() < FOOD_SPAWN_PROB) spawnFood();
+    // Adaptiver Nahrungsspawn: Menge skaliert mit der aktuellen Populationsgröße.
+    // Ziel: TARGET_FOOD_PER_AGENT Nahrungsteile pro lebendem Agenten,
+    // mindestens MIN_FOOD_ITEMS, maximal MAX_FOOD_ITEMS.
+    const targetFood = Math.min(
+      MAX_FOOD_ITEMS,
+      Math.max(MIN_FOOD_ITEMS, state.agents.length * TARGET_FOOD_PER_AGENT),
+    );
+    if (state.foods.length < targetFood && Math.random() < FOOD_SPAWN_PROB) spawnFood();
 
     for (let i = state.agents.length - 1; i >= 0; i--) {
       state.agents[i].update();
