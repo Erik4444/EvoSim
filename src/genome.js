@@ -4,6 +4,7 @@ import {
   COLOR_MUTATION_RATE, COLOR_MUTATION_STDDEV,
   SIZE_MUTATION_RATE, SIZE_MUTATION_STDDEV,
   SHAPE_MUT_PROB, SHAPES, GROUP_NAME_POOL,
+  ACTIVATIONS, ACTIVATION_MUT_PROB,
 } from './config.js';
 import { randn_bm, clamp } from './utils.js';
 import { state } from './state.js';
@@ -51,6 +52,7 @@ export class Genome {
     hiddenUnits, weightsIH, weightsHO, biasHidden, biasOutput,
     sigma, plasticity,
     shape = 0, colorGene = Math.random(), sizeGene = Math.random(),
+    activationGene = 0,
   ) {
     this.hiddenUnits = hiddenUnits;
     this.weightsIH   = weightsIH;   // [hiddenUnits][inputSize]
@@ -61,8 +63,9 @@ export class Genome {
     this.plasticity  = plasticity;  // Lernrate (0 = kein in-life-Lernen)
     this.shape       = shape;       // Index in SHAPES[]
     this.colorGene   = colorGene;   // [0, 1)
-    this.sizeGene    = sizeGene;    // [0, 1]
-    this.color       = genomeToColor(this);
+    this.sizeGene       = sizeGene;       // [0, 1]
+    this.activationGene = activationGene; // Index in ACTIVATIONS[]
+    this.color          = genomeToColor(this);
   }
 
   /** Tiefe Kopie dieses Genoms. */
@@ -79,6 +82,7 @@ export class Genome {
       this.shape,
       this.colorGene,
       this.sizeGene,
+      this.activationGene,
     );
   }
 
@@ -99,6 +103,7 @@ export class Genome {
       Math.floor(Math.random() * SHAPES.length),
       Math.random(),
       Math.random(),
+      Math.floor(Math.random() * ACTIVATIONS.length),
     );
   }
 
@@ -158,6 +163,11 @@ export class Genome {
       g.shape = Math.random() < 0.5
         ? (g.shape + (Math.random() < 0.5 ? 1 : -1) + SHAPES.length) % SHAPES.length
         : Math.floor(Math.random() * SHAPES.length);
+    }
+
+    // Aktivierungsfunktion selten mutieren
+    if (Math.random() < ACTIVATION_MUT_PROB) {
+      g.activationGene = Math.floor(Math.random() * ACTIVATIONS.length);
     }
 
     g.color = genomeToColor(g);

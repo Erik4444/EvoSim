@@ -8,6 +8,7 @@ import { state }                     from './state.js';
 import { render }                    from './render.js';
 import { initSimulation, spawnFood } from './simulation.js';
 import { getGroupName }              from './genome.js';
+import { ACTIVATIONS }               from './config.js';
 import {
   REPRODUCTION_THRESHOLD,
   SENSOR_DIRECTIONS, SENSOR_RANGE,
@@ -48,6 +49,7 @@ function buildAgentTooltip(agent) {
     `Plastizität: ${agent.genome.plasticity.toFixed(3)}<br>` +
     `GrößeGen: ${agent.genome.sizeGene.toFixed(3)}<br>` +
     `FarbGen: ${agent.genome.colorGene.toFixed(3)}<br>` +
+    `Aktivierung: ${ACTIVATIONS[agent.genome.activationGene]}<br>` +
     `Reproduktionen: ${agent.reproductions}`
   );
 }
