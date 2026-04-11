@@ -26,15 +26,15 @@ export function getGroupName(key) {
 
 /**
  * Berechnet die Farbe eines Genoms aus Form und Farbgen.
- * Ähnliche Genome → ähnliche Farben; Gewichte haben keinen Einfluss.
+ * Jede Spezies (shape) erhält einen klar eigenen Farbton (HSL);
+ * colorGene variiert Sättigung und Helligkeit innerhalb der Spezies.
  */
 export function genomeToColor(genome) {
-  const hue   = ((genome.shape / SHAPES.length) + (genome.colorGene ?? 0)) % 1;
-  const angle = hue * 2 * Math.PI;
-  const r = Math.floor(128 + 127 * Math.sin(angle));
-  const g = Math.floor(128 + 127 * Math.sin(angle + Math.PI * 2 / 3));
-  const b = Math.floor(128 + 127 * Math.sin(angle + Math.PI * 4 / 3));
-  return `rgb(${r},${g},${b})`;
+  const baseFraction = genome.shape / SHAPES.length;
+  const hue = ((baseFraction + (genome.colorGene ?? 0) * 0.12) % 1) * 360;
+  const sat = 75 + (genome.colorGene ?? 0) * 20;   // 75–95 %
+  const lit = 52 + (genome.colorGene ?? 0) * 16;   // 52–68 %
+  return `hsl(${hue.toFixed(1)},${sat.toFixed(0)}%,${lit.toFixed(0)}%)`;
 }
 
 // ---------------------------------------------------------------------------

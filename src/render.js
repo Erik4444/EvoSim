@@ -72,31 +72,42 @@ export function drawShape(x, y, size, shapeIndex, fillColor, strokeColor) {
 export function render(selectedAgent) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Nahrung
-  ctx.fillStyle = '#44aa44';
+  // Nahrung – leuchtend gelbgrün
+  ctx.shadowBlur  = 7;
+  ctx.shadowColor = '#aaff55';
+  ctx.fillStyle   = '#88ee33';
   for (const f of state.foods) {
     ctx.beginPath();
     ctx.arc(f.x, f.y, FOOD_RADIUS, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.shadowBlur = 0;
 
   // Agenten
   for (const a of state.agents) {
     const baseSize = 4 + Math.min(6, a.genome.hiddenUnits);
     const size     = baseSize * (0.5 + a.genome.sizeGene);
 
-    // Gelber Auswahlring
-    if (selectedAgent === a) drawShape(a.x, a.y, size + 3, a.genome.shape, null, '#ffff00');
+    // Auswahlring
+    if (selectedAgent === a) {
+      ctx.shadowBlur  = 14;
+      ctx.shadowColor = '#ffff00';
+      drawShape(a.x, a.y, size + 4, a.genome.shape, null, '#ffff00');
+      ctx.shadowBlur = 0;
+    }
 
-    // Körper
+    // Körper mit Glow in Eigenfarbe
+    ctx.shadowBlur  = 10;
+    ctx.shadowColor = a.color;
     drawShape(a.x, a.y, size, a.genome.shape, a.color, null);
+    ctx.shadowBlur = 0;
 
-    // Richtungsanzeige
-    ctx.strokeStyle = '#ffffff66';
+    // Richtungsanzeige (leicht eingefärbt statt reinem Weiß)
+    ctx.strokeStyle = a.color + '99';
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
-    ctx.lineTo(a.x + Math.cos(a.angle) * size * 2, a.y + Math.sin(a.angle) * size * 2);
+    ctx.lineTo(a.x + Math.cos(a.angle) * size * 1.8, a.y + Math.sin(a.angle) * size * 1.8);
     ctx.stroke();
   }
 
