@@ -18,6 +18,7 @@ export const state = {
   foods:          [],
   nextAgentId:    1,
   running:        true,
+  ticksPerFrame:  1,
   // Gruppen-Namenszuweisung (Form-Index → Name)
   groupNames:     {},
   groupNameIndex: 0,

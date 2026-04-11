@@ -16,92 +16,122 @@ import { ACTIVATIONS }               from './config.js';
 // DOM-Elemente
 // ---------------------------------------------------------------------------
 
-const infoDiv   = document.getElementById('info');
-const tooltip   = document.getElementById('tooltip');
-const toggleBtn = document.getElementById('toggleBtn');
+const infoDiv    = document.getElementById('info');
+const tooltip    = document.getElementById('tooltip');
+const toggleBtn  = document.getElementById('toggleBtn');
+const paramBtn   = document.getElementById('paramBtn');
+const paramPanel = document.getElementById('paramPanel');
+const helpBtn    = document.getElementById('helpBtn');
+const helpClose  = document.getElementById('helpClose');
+const helpOverlay = document.getElementById('help-overlay');
+const speedGroup = document.getElementById('speedGroup');
 
 // ---------------------------------------------------------------------------
 // Ticks/Sekunde Messung
 // ---------------------------------------------------------------------------
 
-let tpsCount = 0;
-let tps      = 0;
+let tpsCount    = 0;
+let tps         = 0;
 let lastTpsTime = performance.now();
+
+// ---------------------------------------------------------------------------
+// Control Bar – Speed Buttons
+// ---------------------------------------------------------------------------
+
+const SPEED_OPTIONS = [1, 2, 4, 8];
+
+function buildSpeedButtons() {
+  for (const s of SPEED_OPTIONS) {
+    const btn = document.createElement('button');
+    btn.textContent = `${s}x`;
+    btn.className   = 'btn btn-speed' + (s === 1 ? ' active' : '');
+    btn.dataset.speed = s;
+    btn.addEventListener('click', () => {
+      state.ticksPerFrame = s;
+      speedGroup.querySelectorAll('.btn-speed').forEach(b => {
+        b.classList.toggle('active', parseInt(b.dataset.speed) === s);
+      });
+    });
+    speedGroup.appendChild(btn);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Parameter-Panel
 // ---------------------------------------------------------------------------
 
-// Standardwerte sichern (für "Zurücksetzen")
 const DEFAULT_PARAMS = { ...state.params };
 
 function buildParamPanel() {
-  // Toggle-Button neben dem Pause-Button
-  const paramBtn = document.createElement('button');
-  paramBtn.textContent = '⚙';
-  paramBtn.title = 'Parameter';
-  paramBtn.style.cssText =
-    'position:absolute;top:10px;right:70px;z-index:10;font-size:14px;padding:4px 8px;';
-  document.body.appendChild(paramBtn);
-
-  // Panel-Container
-  const panel = document.createElement('div');
-  panel.style.cssText =
-    'position:absolute;top:42px;right:10px;background:rgba(0,0,0,0.88);' +
-    'border:1px solid #555;border-radius:6px;padding:10px 12px;font-size:12px;' +
-    'min-width:240px;display:none;z-index:20;';
-  document.body.appendChild(panel);
-
-  paramBtn.addEventListener('click', () => {
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-  });
-
-  // Slider-Definitionen
-  const sliders = [
-    { label: 'Nahrungsspawn',    key: 'foodSpawnProb',         min: 0.005, max: 0.3,    step: 0.005, decimals: 3 },
-    { label: 'Cluster-Prob',     key: 'foodClusterProb',       min: 0,     max: 1,      step: 0.05,  decimals: 2 },
-    { label: 'Sensorreichweite', key: 'sensorRange',           min: 30,    max: 300,    step: 5,     decimals: 0 },
-    { label: 'Hazard',           key: 'hazardBase',            min: 1e-5,  max: 5e-4,   step: 1e-5,  decimals: 5 },
-    { label: 'Repro-Schwelle',   key: 'reproductionThreshold', min: 2,     max: 12,     step: 0.5,   decimals: 1 },
-    { label: 'Nahrungswert',     key: 'foodValue',             min: 0.5,   max: 4,      step: 0.1,   decimals: 1 },
+  const sliderGroups = [
+    {
+      title: 'Ökosystem',
+      sliders: [
+        { label: 'Nahrungsspawn',  key: 'foodSpawnProb',   min: 0.005, max: 0.3,  step: 0.005, decimals: 3 },
+        { label: 'Cluster-Prob',   key: 'foodClusterProb', min: 0,     max: 1,    step: 0.05,  decimals: 2 },
+        { label: 'Nahrungswert',   key: 'foodValue',       min: 0.5,   max: 4,    step: 0.1,   decimals: 1 },
+      ],
+    },
+    {
+      title: 'Agenten',
+      sliders: [
+        { label: 'Sensorreichweite', key: 'sensorRange',           min: 30, max: 300, step: 5,   decimals: 0 },
+        { label: 'Repro-Schwelle',   key: 'reproductionThreshold', min: 2,  max: 12,  step: 0.5, decimals: 1 },
+      ],
+    },
+    {
+      title: 'Überlebensdruck',
+      sliders: [
+        { label: 'Hazard (Sterberisiko)', key: 'hazardBase', min: 1e-5, max: 5e-4, step: 1e-5, decimals: 5 },
+      ],
+    },
   ];
 
-  const inputs = {}; // key → { input, valSpan }
+  const inputs = {}; // key → { input, valSpan, decimals }
 
-  for (const { label, key, min, max, step, decimals } of sliders) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;gap:6px;';
+  for (const group of sliderGroups) {
+    const groupTitle = document.createElement('div');
+    groupTitle.className   = 'param-group-title';
+    groupTitle.textContent = group.title;
+    paramPanel.appendChild(groupTitle);
 
-    const lbl = document.createElement('span');
-    lbl.textContent = label;
-    lbl.style.cssText = 'flex:0 0 120px;';
+    for (const { label, key, min, max, step, decimals } of group.sliders) {
+      const row = document.createElement('div');
+      row.className = 'param-row';
 
-    const input = document.createElement('input');
-    input.type  = 'range';
-    input.min   = min;
-    input.max   = max;
-    input.step  = step;
-    input.value = state.params[key];
-    input.style.cssText = 'flex:1;cursor:pointer;';
+      const lbl = document.createElement('span');
+      lbl.className   = 'param-label';
+      lbl.textContent = label;
 
-    const valSpan = document.createElement('span');
-    valSpan.style.cssText = 'flex:0 0 52px;text-align:right;font-family:monospace;';
-    valSpan.textContent   = Number(state.params[key]).toFixed(decimals);
+      const input   = document.createElement('input');
+      input.type    = 'range';
+      input.min     = min;
+      input.max     = max;
+      input.step    = step;
+      input.value   = state.params[key];
 
-    input.addEventListener('input', () => {
-      state.params[key]   = parseFloat(input.value);
-      valSpan.textContent = parseFloat(input.value).toFixed(decimals);
-    });
+      const valSpan = document.createElement('span');
+      valSpan.className   = 'param-value';
+      valSpan.textContent = Number(state.params[key]).toFixed(decimals);
 
-    row.append(lbl, input, valSpan);
-    panel.appendChild(row);
-    inputs[key] = { input, valSpan, decimals };
+      input.addEventListener('input', () => {
+        state.params[key]   = parseFloat(input.value);
+        valSpan.textContent = parseFloat(input.value).toFixed(decimals);
+      });
+
+      row.append(lbl, input, valSpan);
+      paramPanel.appendChild(row);
+      inputs[key] = { input, valSpan, decimals };
+    }
   }
 
-  // Zurücksetzen
+  const divider = document.createElement('div');
+  divider.className = 'param-divider';
+  paramPanel.appendChild(divider);
+
   const resetBtn = document.createElement('button');
   resetBtn.textContent = 'Zurücksetzen';
-  resetBtn.style.cssText = 'margin-top:6px;width:100%;padding:3px;cursor:pointer;';
+  resetBtn.className   = 'btn btn-reset';
   resetBtn.addEventListener('click', () => {
     Object.assign(state.params, DEFAULT_PARAMS);
     for (const [key, { input, valSpan, decimals }] of Object.entries(inputs)) {
@@ -109,7 +139,7 @@ function buildParamPanel() {
       valSpan.textContent = Number(state.params[key]).toFixed(decimals);
     }
   });
-  panel.appendChild(resetBtn);
+  paramPanel.appendChild(resetBtn);
 }
 
 // ---------------------------------------------------------------------------
@@ -121,53 +151,64 @@ function updateHUD() {
   const n = agents.length;
   if (n === 0) return;
 
-  // Statistiken berechnen
-  let sumHidden = 0, sumAge = 0, sumSizeGene = 0;
+  let sumHidden = 0, sumAge = 0;
   const groupCounts = {}, groupColors = {};
   const actCounts   = new Array(ACTIVATIONS.length).fill(0);
 
   for (const a of agents) {
-    sumHidden   += a.genome.hiddenUnits;
-    sumAge      += a.age;
-    sumSizeGene += a.genome.sizeGene;
+    sumHidden += a.genome.hiddenUnits;
+    sumAge    += a.age;
     actCounts[a.genome.activationGene]++;
     const key = a.genome.shape;
     groupCounts[key] = (groupCounts[key] || 0) + 1;
     if (!groupColors[key]) groupColors[key] = a.color;
   }
 
-  // Top-Gruppen
-  const topGroups = Object.entries(groupCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  let groupsHTML  = '';
-  for (const [key, count] of topGroups) {
+  // Top-2 Spezies
+  const top2 = Object.entries(groupCounts).sort((a, b) => b[1] - a[1]).slice(0, 2);
+  const speciesHTML = top2.map(([key, count]) => {
     const idx = parseInt(key);
-    groupsHTML +=
-      `<span style="display:inline-block;width:10px;height:10px;` +
-      `background:${groupColors[idx]};margin-right:3px;border:1px solid #fff;vertical-align:middle;"></span>` +
-      `${getGroupName(idx)}: ${count}<br>`;
-  }
+    return `<span class="hud-species-item">` +
+      `<span class="hud-dot" style="background:${groupColors[idx]};"></span>` +
+      `<span class="hud-value">${getGroupName(idx)}</span>` +
+      `<span class="hud-label">${count}</span>` +
+      `</span>`;
+  }).join('');
 
-  // Aktivierungsverteilung
-  const actHTML = ACTIVATIONS.map((name, i) => {
-    const pct  = ((actCounts[i] / n) * 100).toFixed(0);
-    const fill = Math.round(actCounts[i] / n * 8);
-    const bar  = '█'.repeat(fill) + '░'.repeat(8 - fill);
-    return `${name}: <span style="font-family:monospace">${bar}</span> ${pct}%`;
-  }).join('<br>');
+  // Dominante Aktivierungsfunktion
+  const maxActIdx  = actCounts.indexOf(Math.max(...actCounts));
+  const actPct     = ((actCounts[maxActIdx] / n) * 100).toFixed(0);
+  const actName    = ACTIVATIONS[maxActIdx];
+
+  const speedLabel = state.ticksPerFrame > 1 ? ` &nbsp;<span class="hud-label">·</span>&nbsp; <span class="hud-value">${state.ticksPerFrame}x</span>` : '';
 
   infoDiv.innerHTML =
-    `<div style="margin-bottom:4px;">` +
-      `<strong>${n}</strong> Agenten &nbsp;` +
-      `<strong>${foods.length}</strong> Nahrung &nbsp;` +
-      `<strong>${tps}</strong> T/s` +
+    `<div class="hud-section">` +
+      `<div class="hud-section-title">Ökosystem</div>` +
+      `<div class="hud-row">` +
+        `<span class="hud-value">${n}</span><span class="hud-label">Agenten</span>` +
+        `<span class="hud-sep">&nbsp;·&nbsp;</span>` +
+        `<span class="hud-value">${foods.length}</span><span class="hud-label">Nahrung</span>` +
+      `</div>` +
+      `<div class="hud-row" style="margin-top:2px;">` +
+        `<span class="hud-label">TPS</span><span class="hud-value">${tps}</span>` +
+        `${speedLabel}` +
+      `</div>` +
     `</div>` +
-    `<div style="margin-bottom:4px;">` +
-      `ø Hidden: <strong>${(sumHidden / n).toFixed(1)}</strong> &nbsp; ` +
-      `ø Alter: <strong>${(sumAge / n).toFixed(0)}</strong> &nbsp; ` +
-      `ø Größe: <strong>${(sumSizeGene / n).toFixed(2)}</strong>` +
-    `</div>` +
-    `<div style="margin-bottom:4px;"><strong>Gruppen:</strong><br>${groupsHTML}</div>` +
-    `<div style="font-size:11px;"><strong>Aktivierung:</strong><br>${actHTML}</div>`;
+    `<div class="hud-section">` +
+      `<div class="hud-section-title">Evolution</div>` +
+      `<div class="hud-row">` +
+        `<span class="hud-label">ø Alter</span><span class="hud-value">${(sumAge / n).toFixed(0)}</span>` +
+        `<span class="hud-sep">&nbsp;·&nbsp;</span>` +
+        `<span class="hud-label">ø Neuronen</span><span class="hud-value">${(sumHidden / n).toFixed(1)}</span>` +
+      `</div>` +
+      `<div class="hud-row hud-species-row" style="margin-top:4px;">${speciesHTML}</div>` +
+      `<div class="hud-row" style="margin-top:2px;">` +
+        `<span class="hud-label">Aktivierung</span>` +
+        `<span class="hud-value">${actName}</span>` +
+        `<span class="hud-label">${actPct}%</span>` +
+      `</div>` +
+    `</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,16 +221,17 @@ let selectedAgent = null;
 function buildAgentTooltip(agent) {
   const group = getGroupName(agent.genome.shape);
   return (
-    `<strong>${agent.name}</strong> (<em>${group}</em>)<br>` +
-    `Energie: ${agent.energy.toFixed(2)}<br>` +
-    `Alter: ${agent.age}<br>` +
-    `Hidden Units: ${agent.genome.hiddenUnits}<br>` +
-    `Sigma: ${agent.genome.sigma.toFixed(3)}<br>` +
-    `Plastizität: ${agent.genome.plasticity.toFixed(3)}<br>` +
-    `GrößeGen: ${agent.genome.sizeGene.toFixed(3)}<br>` +
-    `FarbGen: ${agent.genome.colorGene.toFixed(3)}<br>` +
-    `Aktivierung: ${ACTIVATIONS[agent.genome.activationGene]}<br>` +
-    `Reproduktionen: ${agent.reproductions}`
+    `<div class="tt-name">${agent.name}</div>` +
+    `<div class="tt-group">${group}</div>` +
+    `<div class="tt-section-title">Vitalwerte</div>` +
+    `<div class="tt-row"><span class="tt-key">Energie</span><span class="tt-val">${agent.energy.toFixed(2)}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Alter</span><span class="tt-val">${agent.age}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Reproduktionen</span><span class="tt-val">${agent.reproductions}</span></div>` +
+    `<div class="tt-section-title">Genom</div>` +
+    `<div class="tt-row"><span class="tt-key">Neuronen</span><span class="tt-val">${agent.genome.hiddenUnits}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Aktivierung</span><span class="tt-val">${ACTIVATIONS[agent.genome.activationGene]}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Sigma</span><span class="tt-val">${agent.genome.sigma.toFixed(3)}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Plastizität</span><span class="tt-val">${agent.genome.plasticity.toFixed(3)}</span></div>`
   );
 }
 
@@ -205,10 +247,21 @@ function findNearestAgent(mx, my) {
   return nearest;
 }
 
-function positionTooltipAt(agent) {
+function positionTooltip(anchorX, anchorY) {
+  const tw = tooltip.offsetWidth  || 215;
+  const th = tooltip.offsetHeight || 160;
+  const margin = 12;
+  let left = anchorX + margin;
+  let top  = anchorY + margin;
+  if (left + tw + margin > window.innerWidth)  left = anchorX - tw - margin;
+  if (top  + th + margin > window.innerHeight) top  = anchorY - th - margin;
+  tooltip.style.left = `${Math.max(margin, left)}px`;
+  tooltip.style.top  = `${Math.max(margin, top)}px`;
+}
+
+function positionTooltipAtAgent(agent) {
   const rect = canvas.getBoundingClientRect();
-  tooltip.style.left = `${rect.left + agent.x + 15}px`;
-  tooltip.style.top  = `${rect.top  + agent.y + 15}px`;
+  positionTooltip(rect.left + agent.x, rect.top + agent.y);
 }
 
 function updateSelectedTooltip() {
@@ -220,7 +273,7 @@ function updateSelectedTooltip() {
   }
   tooltip.innerHTML     = buildAgentTooltip(selectedAgent);
   tooltip.style.display = 'block';
-  positionTooltipAt(selectedAgent);
+  positionTooltipAtAgent(selectedAgent);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +281,6 @@ function updateSelectedTooltip() {
 // ---------------------------------------------------------------------------
 
 function tick() {
-  // Ticks/Sek messen
   tpsCount++;
   const now = performance.now();
   if (now - lastTpsTime >= 1000) {
@@ -238,19 +290,21 @@ function tick() {
   }
 
   if (state.running) {
-    // Adaptiver Nahrungsspawn
-    const targetFood = Math.min(
-      state.params.maxFoodItems,
-      Math.max(state.params.minFoodItems, state.agents.length * state.params.targetFoodPerAgent),
-    );
-    if (state.foods.length < targetFood && Math.random() < state.params.foodSpawnProb) spawnFood();
+    for (let s = 0; s < state.ticksPerFrame; s++) {
+      // Adaptiver Nahrungsspawn
+      const targetFood = Math.min(
+        state.params.maxFoodItems,
+        Math.max(state.params.minFoodItems, state.agents.length * state.params.targetFoodPerAgent),
+      );
+      if (state.foods.length < targetFood && Math.random() < state.params.foodSpawnProb) spawnFood();
 
-    for (let i = state.agents.length - 1; i >= 0; i--) {
-      state.agents[i].update();
-      if (state.agents[i].energy < 0) state.agents.splice(i, 1);
+      for (let i = state.agents.length - 1; i >= 0; i--) {
+        state.agents[i].update();
+        if (state.agents[i].energy < 0) state.agents.splice(i, 1);
+      }
+
+      if (state.agents.length === 0) initSimulation(120, 300);
     }
-
-    if (state.agents.length === 0) initSimulation(120, 300);
   }
 
   render(selectedAgent);
@@ -264,16 +318,29 @@ function tick() {
 // Event-Handler
 // ---------------------------------------------------------------------------
 
-toggleBtn.addEventListener('click', () => {
-  state.running = !state.running;
-  toggleBtn.textContent = state.running ? 'Pause' : 'Start';
+function setPaused(paused) {
+  state.running = !paused;
+  toggleBtn.innerHTML = state.running ? '&#9646;&#9646; Pause' : '&#9654; Start';
+}
+
+toggleBtn.addEventListener('click', () => setPaused(state.running));
+
+paramPanel.style.display = 'none'; // inline-style sicherstellen für Toggle-Logik
+
+paramBtn.addEventListener('click', () => {
+  paramPanel.style.display = paramPanel.style.display === 'none' ? 'block' : 'none';
+});
+
+helpBtn.addEventListener('click', () => helpOverlay.classList.add('visible'));
+helpClose.addEventListener('click', () => helpOverlay.classList.remove('visible'));
+helpOverlay.addEventListener('click', (e) => {
+  if (e.target === helpOverlay) helpOverlay.classList.remove('visible');
 });
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
     e.preventDefault();
-    state.running = !state.running;
-    toggleBtn.textContent = state.running ? 'Pause' : 'Start';
+    setPaused(state.running);
   }
 });
 
@@ -290,8 +357,7 @@ window.addEventListener('mousemove', (e) => {
   if (hoveredAgent) {
     tooltip.innerHTML     = buildAgentTooltip(hoveredAgent);
     tooltip.style.display = 'block';
-    tooltip.style.left    = `${e.clientX + 15}px`;
-    tooltip.style.top     = `${e.clientY + 15}px`;
+    positionTooltip(e.clientX, e.clientY);
   } else {
     tooltip.style.display = 'none';
   }
@@ -300,20 +366,20 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
 
 window.addEventListener('click', (e) => {
+  // Klicks auf UI-Elemente ignorieren
+  if (e.target !== canvas) return;
   const rect = canvas.getBoundingClientRect();
   const mx   = e.clientX - rect.left;
   const my   = e.clientY - rect.top;
-  if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) {
-    selectedAgent = null; tooltip.style.display = 'none'; return;
-  }
   const nearest = findNearestAgent(mx, my);
   if (nearest) {
     selectedAgent         = nearest;
     tooltip.innerHTML     = buildAgentTooltip(selectedAgent);
     tooltip.style.display = 'block';
-    positionTooltipAt(selectedAgent);
+    positionTooltipAtAgent(selectedAgent);
   } else {
-    selectedAgent = null; tooltip.style.display = 'none';
+    selectedAgent = null;
+    tooltip.style.display = 'none';
   }
 });
 
@@ -322,6 +388,7 @@ window.addEventListener('click', (e) => {
 // ---------------------------------------------------------------------------
 
 window.addEventListener('load', () => {
+  buildSpeedButtons();
   buildParamPanel();
   initGraph();
   initSimulation(120, 300);

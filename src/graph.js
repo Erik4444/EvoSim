@@ -27,12 +27,9 @@ let graphCtx    = null;
 /** Erstellt und hängt den Graph-Canvas ins DOM. Einmalig aufrufen. */
 export function initGraph() {
   graphCanvas = document.createElement('canvas');
-  graphCanvas.width  = W;
-  graphCanvas.height = H;
-  graphCanvas.style.cssText =
-    'position:absolute;bottom:10px;left:10px;' +
-    'background:rgba(0,0,0,0.65);border:1px solid #444;border-radius:4px;' +
-    'pointer-events:none;';
+  graphCanvas.width     = W;
+  graphCanvas.height    = H;
+  graphCanvas.className = 'graph-canvas';
   document.body.appendChild(graphCanvas);
   graphCtx = graphCanvas.getContext('2d');
 }

@@ -1,6 +1,6 @@
 import { canvas, ctx } from './canvas.js';
 import { state }       from './state.js';
-import { FOOD_RADIUS, SHAPES } from './config.js';
+import { FOOD_RADIUS } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Formen zeichnen
@@ -98,5 +98,19 @@ export function render(selectedAgent) {
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(a.x + Math.cos(a.angle) * size * 2, a.y + Math.sin(a.angle) * size * 2);
     ctx.stroke();
+  }
+
+  // Pause-Overlay
+  if (!state.running) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.font      = 'bold 28px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(232, 234, 240, 0.75)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⏸ PAUSIERT', canvas.width / 2, canvas.height / 2);
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 }
