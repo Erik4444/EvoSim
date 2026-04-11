@@ -16,15 +16,16 @@ import { ACTIVATIONS }               from './config.js';
 // DOM-Elemente
 // ---------------------------------------------------------------------------
 
-const infoDiv    = document.getElementById('info');
-const tooltip    = document.getElementById('tooltip');
-const toggleBtn  = document.getElementById('toggleBtn');
-const paramBtn   = document.getElementById('paramBtn');
-const paramPanel = document.getElementById('paramPanel');
-const helpBtn    = document.getElementById('helpBtn');
-const helpClose  = document.getElementById('helpClose');
+const infoDiv     = document.getElementById('info');
+const tooltip     = document.getElementById('tooltip');
+const toggleBtn   = document.getElementById('toggleBtn');
+const paramBtn    = document.getElementById('paramBtn');
+const paramPanel  = document.getElementById('paramPanel');
+const helpBtn     = document.getElementById('helpBtn');
+const helpClose   = document.getElementById('helpClose');
 const helpOverlay = document.getElementById('help-overlay');
-const speedGroup = document.getElementById('speedGroup');
+const speedGroup  = document.getElementById('speedGroup');
+const resetBtn    = document.getElementById('resetBtn');
 
 // ---------------------------------------------------------------------------
 // Ticks/Sekunde Messung
@@ -114,14 +115,19 @@ function buildParamPanel() {
       valSpan.className   = 'param-value';
       valSpan.textContent = Number(state.params[key]).toFixed(decimals);
 
+      const updateModified = () => {
+        row.classList.toggle('modified', parseFloat(input.value) !== DEFAULT_PARAMS[key]);
+      };
+
       input.addEventListener('input', () => {
         state.params[key]   = parseFloat(input.value);
         valSpan.textContent = parseFloat(input.value).toFixed(decimals);
+        updateModified();
       });
 
       row.append(lbl, input, valSpan);
       paramPanel.appendChild(row);
-      inputs[key] = { input, valSpan, decimals };
+      inputs[key] = { input, valSpan, decimals, row };
     }
   }
 
@@ -129,17 +135,18 @@ function buildParamPanel() {
   divider.className = 'param-divider';
   paramPanel.appendChild(divider);
 
-  const resetBtn = document.createElement('button');
-  resetBtn.textContent = 'Zurücksetzen';
-  resetBtn.className   = 'btn btn-reset';
-  resetBtn.addEventListener('click', () => {
+  const paramsResetBtn = document.createElement('button');
+  paramsResetBtn.textContent = 'Zurücksetzen';
+  paramsResetBtn.className   = 'btn btn-reset';
+  paramsResetBtn.addEventListener('click', () => {
     Object.assign(state.params, DEFAULT_PARAMS);
-    for (const [key, { input, valSpan, decimals }] of Object.entries(inputs)) {
+    for (const [key, { input, valSpan, decimals, row }] of Object.entries(inputs)) {
       input.value         = state.params[key];
       valSpan.textContent = Number(state.params[key]).toFixed(decimals);
+      row.classList.remove('modified');
     }
   });
-  paramPanel.appendChild(resetBtn);
+  paramPanel.appendChild(paramsResetBtn);
 }
 
 // ---------------------------------------------------------------------------

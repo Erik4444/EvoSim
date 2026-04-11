@@ -58,14 +58,15 @@ export class NeuralNetwork {
     }
     this.lastHidden = hidden;
 
-    // Hidden → Output
+    // Hidden → Output (immer tanh: Drehung und Vortrieb müssen in [-1, 1] liegen,
+    // unabhängig von der gen-kodierten Aktivierungsfunktion des Hidden-Layers)
     const outputs = new Array(this.outputSize);
     for (let o = 0; o < this.outputSize; o++) {
       let sum = this.genome.biasOutput[o] + this.learnedBiasO[o];
       const wRow = this.genome.weightsHO[o];
       const lRow = this.learnedHO[o];
       for (let h = 0; h < this.genome.hiddenUnits; h++) sum += (wRow[h] + lRow[h]) * hidden[h];
-      outputs[o] = this.activate(sum);
+      outputs[o] = Math.tanh(sum);
     }
     this.lastOutput = outputs;
     return outputs;

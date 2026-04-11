@@ -76,7 +76,7 @@ export function computeSensors(agent) {
     ...farFood,
     ...nearAgent,
     ...farAgent,
-    agent.energy / state.params.reproductionThreshold, // normiertes Energielevel
+    Math.min(1, agent.energy / state.params.reproductionThreshold), // normiertes Energielevel [0, 1]
     Math.random() * 2 - 1,                 // Rauschen [-1, 1]
   ];
 }
@@ -104,8 +104,8 @@ export class Agent {
   update() {
     // Sensorik → Netz → Steuerung
     const outputs = this.brain.forward(computeSensors(this));
-    const turn    = outputs[0];
-    const thrust  = (outputs[1] + 1) / 2; // tanh → [0, 1]
+    const turn    = outputs[0];                    // tanh → [-1, 1]: links/rechts
+    const thrust  = (outputs[1] + 1) / 2;         // tanh → [0, 1]: vorwärts
 
     // Gen-basierte Faktoren (colorGene bestimmt nur die Farbe, nicht mehr die Kosten)
     const sizeFactor  = 1 + this.genome.sizeGene;           // [1, 2]  – größer = langsamer & teurer

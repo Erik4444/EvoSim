@@ -32,8 +32,8 @@ export function genomeToColor(genome) {
   const hue   = ((genome.shape / SHAPES.length) + (genome.colorGene ?? 0)) % 1;
   const angle = hue * 2 * Math.PI;
   const r = Math.floor(128 + 127 * Math.sin(angle));
-  const g = Math.floor(128 + 127 * Math.sin(angle + 2));
-  const b = Math.floor(128 + 127 * Math.sin(angle + 4));
+  const g = Math.floor(128 + 127 * Math.sin(angle + Math.PI * 2 / 3));
+  const b = Math.floor(128 + 127 * Math.sin(angle + Math.PI * 4 / 3));
   return `rgb(${r},${g},${b})`;
 }
 
