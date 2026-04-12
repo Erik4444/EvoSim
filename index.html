@@ -236,12 +236,21 @@
     .param-label {
       flex: 0 0 115px;
       color: var(--text-dim);
+      transition: color 0.15s;
     }
 
     .param-row input[type="range"] {
       flex: 1;
       cursor: pointer;
       accent-color: var(--accent);
+    }
+
+    /* Slider abweichend vom Default → Label + Wert akzentfarben */
+    .param-row.modified .param-label {
+      color: var(--accent);
+    }
+    .param-row.modified .param-value {
+      color: var(--accent);
     }
 
     .param-value {
@@ -305,16 +314,24 @@
     .tt-val  { font-family: var(--font-mono); font-size: 11px; color: var(--text); }
 
     /* ------------------------------------------------------------------ */
-    /* Population Graph                                                     */
+    /* Population Graph (hover → aufklappen)                               */
     /* ------------------------------------------------------------------ */
     .graph-canvas {
       position: absolute;
       bottom: 12px;
       left: 12px;
-      pointer-events: none;
+      pointer-events: auto;
       border-radius: var(--radius-sm);
       border: 1px solid var(--glass-border);
       background: rgba(6, 8, 16, 0.70);
+      width: 240px;
+      height: 80px;
+      transition: width 0.25s ease, height 0.25s ease, border-color 0.25s;
+    }
+    .graph-canvas:hover {
+      width: 400px;
+      height: 150px;
+      border-color: rgba(255,255,255,0.22);
     }
 
     /* ------------------------------------------------------------------ */
@@ -396,6 +413,7 @@
   <div id="controls">
     <button id="helpBtn"   class="btn btn-icon" title="Hilfe / Legende">?</button>
     <button id="paramBtn"  class="btn btn-icon" title="Parameter">&#9881;</button>
+    <button id="resetBtn"  class="btn btn-icon" title="Simulation neu starten">&#8635;</button>
     <div class="speed-group" id="speedGroup"></div>
     <button id="toggleBtn" class="btn btn-primary">&#9646;&#9646; Pause</button>
   </div>

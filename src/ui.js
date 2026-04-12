@@ -187,7 +187,10 @@ function updateHUD() {
   const actPct     = ((actCounts[maxActIdx] / n) * 100).toFixed(0);
   const actName    = ACTIVATIONS[maxActIdx];
 
-  const speedLabel = state.ticksPerFrame > 1 ? ` &nbsp;<span class="hud-label">·</span>&nbsp; <span class="hud-value">${state.ticksPerFrame}x</span>` : '';
+  const sps = tps * state.ticksPerFrame; // Sim-Steps pro Sekunde
+  const speedLabel = state.ticksPerFrame > 1
+    ? ` &nbsp;<span class="hud-sep">·</span>&nbsp; <span class="hud-value">${state.ticksPerFrame}x</span>`
+    : '';
 
   infoDiv.innerHTML =
     `<div class="hud-section">` +
@@ -198,7 +201,7 @@ function updateHUD() {
         `<span class="hud-value">${foods.length}</span><span class="hud-label">Nahrung</span>` +
       `</div>` +
       `<div class="hud-row" style="margin-top:2px;">` +
-        `<span class="hud-label">TPS</span><span class="hud-value">${tps}</span>` +
+        `<span class="hud-label">Sps</span><span class="hud-value">${sps}</span>` +
         `${speedLabel}` +
       `</div>` +
     `</div>` +
@@ -344,6 +347,15 @@ helpOverlay.addEventListener('click', (e) => {
   if (e.target === helpOverlay) helpOverlay.classList.remove('visible');
 });
 
+resetBtn.addEventListener('click', () => {
+  state.groupNames     = {};
+  state.groupNameIndex = 0;
+  state.nextAgentId    = 1;
+  selectedAgent        = null;
+  tooltip.style.display = 'none';
+  initSimulation(120, 300);
+});
+
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.key === 'p' || e.key === 'P') {
     e.preventDefault();
@@ -365,8 +377,10 @@ window.addEventListener('mousemove', (e) => {
     tooltip.innerHTML     = buildAgentTooltip(hoveredAgent);
     tooltip.style.display = 'block';
     positionTooltip(e.clientX, e.clientY);
+    canvas.style.cursor   = 'pointer';
   } else {
     tooltip.style.display = 'none';
+    canvas.style.cursor   = 'default';
   }
 });
 

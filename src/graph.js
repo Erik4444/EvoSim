@@ -5,8 +5,6 @@ import { state } from './state.js';
 // ---------------------------------------------------------------------------
 
 const HISTORY_LENGTH = 300; // Anzahl der gespeicherten Ticks
-const W = 240;
-const H = 80;
 
 // ---------------------------------------------------------------------------
 // Interner Zustand
@@ -20,6 +18,10 @@ const history = {
 let graphCanvas = null;
 let graphCtx    = null;
 
+// Aktuelle Pixel-Dimensionen (werden via ResizeObserver aktuell gehalten)
+let gW = 240;
+let gH = 80;
+
 // ---------------------------------------------------------------------------
 // Öffentliche API
 // ---------------------------------------------------------------------------
@@ -27,24 +29,50 @@ let graphCtx    = null;
 /** Erstellt und hängt den Graph-Canvas ins DOM. Einmalig aufrufen. */
 export function initGraph() {
   graphCanvas = document.createElement('canvas');
-  graphCanvas.width     = W;
-  graphCanvas.height    = H;
+  graphCanvas.width     = gW;
+  graphCanvas.height    = gH;
   graphCanvas.className = 'graph-canvas';
   document.body.appendChild(graphCanvas);
   graphCtx = graphCanvas.getContext('2d');
+
+  // ResizeObserver: CSS-Größe → Canvas-Pixel synchronisieren
+  const ro = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        gW = Math.round(width);
+        gH = Math.round(height);
+        graphCanvas.width  = gW;
+        graphCanvas.height = gH;
+        drawGraph(); // direkt neu zeichnen, ohne History-Update
+      }
+    }
+  });
+  ro.observe(graphCanvas);
 }
 
 /** Fügt aktuelle Werte zur History hinzu und zeichnet den Graph neu. */
 export function updateGraph() {
   if (!graphCtx) return;
 
-  // History schieben
   history.agents.push(state.agents.length);
   history.agents.shift();
   history.foods.push(state.foods.length);
   history.foods.shift();
 
-  // Zeichnen
+  drawGraph();
+}
+
+// ---------------------------------------------------------------------------
+// Intern: Graph zeichnen (ohne History zu verändern)
+// ---------------------------------------------------------------------------
+
+function drawGraph() {
+  if (!graphCtx) return;
+
+  const W = gW;
+  const H = gH;
+
   graphCtx.clearRect(0, 0, W, H);
 
   const maxVal = Math.max(
@@ -53,23 +81,24 @@ export function updateGraph() {
     1,
   );
 
-  drawLine(history.foods,  '#44cc44');
-  drawLine(history.agents, '#ffffff');
+  drawLine(history.foods,  '#66cc44');
+  drawLine(history.agents, '#e8eaf0');
 
   // Legende
-  graphCtx.font      = '9px sans-serif';
-  graphCtx.fillStyle = '#44cc44';
-  graphCtx.fillText(`Nahrung: ${state.foods.length}`,  4, 12);
-  graphCtx.fillStyle = '#ffffff';
-  graphCtx.fillText(`Agenten: ${state.agents.length}`, 4, 23);
+  const fontSize = Math.max(9, Math.round(H * 0.13));
+  graphCtx.font      = `${fontSize}px sans-serif`;
+  graphCtx.fillStyle = '#66cc44';
+  graphCtx.fillText(`Nahrung: ${state.foods.length}`,  5, fontSize + 2);
+  graphCtx.fillStyle = '#e8eaf0';
+  graphCtx.fillText(`Agenten: ${state.agents.length}`, 5, fontSize * 2 + 4);
 
   function drawLine(data, color) {
     graphCtx.beginPath();
     graphCtx.strokeStyle = color;
-    graphCtx.lineWidth   = 1.5;
+    graphCtx.lineWidth   = H > 100 ? 2 : 1.5;
     for (let i = 0; i < data.length; i++) {
       const x = (i / (data.length - 1)) * W;
-      const y = H - (data[i] / maxVal) * (H - 6) - 3;
+      const y = H - (data[i] / maxVal) * (H - 8) - 4;
       if (i === 0) graphCtx.moveTo(x, y);
       else         graphCtx.lineTo(x, y);
     }
